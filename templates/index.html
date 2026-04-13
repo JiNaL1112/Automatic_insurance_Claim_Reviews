@@ -3,12 +3,107 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualization</title>
+    <title>Health Claims Fraud Detection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 60px auto;
+            padding: 0 20px;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        p {
+            color: #555;
+        }
+        .upload-box {
+            background: white;
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin-top: 30px;
+        }
+        input[type="file"] {
+            margin: 15px 0;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #status {
+            margin-top: 15px;
+            color: #888;
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Prediction Distribution</h1>
-    <img src="{{ url_for('static', filename='prediction_pie_chart.png') }}" alt="Prediction Pie Chart">
-    <br><br>
-    <a href="/">Go Back</a>
+    <h1>🏥 Health Claims Fraud Detection</h1>
+    <p>Upload a CSV file containing health claims to detect potentially fraudulent entries using the Isolation Forest model.</p>
+
+    <div class="upload-box">
+        <p><strong>Select a CSV file to analyse</strong></p>
+        <input type="file" id="fileInput" accept=".csv" />
+        <br>
+        <button onclick="uploadFile()">Analyse Claims</button>
+        <p id="status"></p>
+    </div>
+
+    <script>
+        function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const status = document.getElementById('status');
+
+            if (!fileInput.files.length) {
+                status.textContent = '⚠️ Please select a CSV file first.';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            status.textContent = 'Uploading and analysing...';
+
+            reader.onload = function(e) {
+                const base64Data = e.target.result;
+
+                fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'file=' + encodeURIComponent(base64Data)
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return response.text();
+                    } else {
+                        throw new Error('Server error: ' + response.status);
+                    }
+                })
+                .then(html => {
+                    document.open();
+                    document.write(html);
+                    document.close();
+                })
+                .catch(err => {
+                    status.textContent = '❌ Error: ' + err.message;
+                });
+            };
+
+            reader.readAsDataURL(file);
+        }
+    </script>
 </body>
 </html>

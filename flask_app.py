@@ -6,51 +6,48 @@ import io
 
 app = Flask(__name__)
 
-# Route for the home page
+BENTOML_URL = 'http://127.0.0.1:3000/predict'  # BentoML runs on 3000, NOT 5000 (that's MLflow)
+FEATURES = ['claim_amount', 'num_services', 'patient_age', 'provider_id', 'days_since_last_claim']
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Route to handle the CSV file upload and prediction
 @app.route('/predict', methods=['POST'])
 def predict():
     file_data = request.form.get('file')
-    
+
     # Decode the Base64 encoded file content
     decoded_file = base64.b64decode(file_data.split(',')[1])
 
-    # Read the decoded content into a DataFrame
+    # Read into DataFrame
     df = pd.read_csv(io.StringIO(decoded_file.decode('utf-8')))
 
-    # Separate the 'claim_id' column if it exists
-    if 'claim_id' in df.columns:
-        claim_ids = df['claim_id']
-        df = df.drop(columns=['claim_id'])
-    else:
-        claim_ids = None
+    # Keep claim_id aside if present
+    claim_ids = df['claim_id'] if 'claim_id' in df.columns else None
 
-    # Send the DataFrame to the BentoML service
+    # Only send the model features to BentoML
+    df_features = df[FEATURES]
+
+    # Send to BentoML — wrap in {"data": [...]} as required
     response = requests.post(
-        'http://127.0.0.1:5000/predict',  # BentoML endpoint
-        json=df.to_dict(orient='records')
+        BENTOML_URL,
+        json={"data": df_features.to_dict(orient='records')}
     )
 
-    # Get predictions from the response
+    if response.status_code != 200:
+        return f"BentoML error {response.status_code}: {response.text}", 500
+
     predictions = response.json()['predictions']
 
-    # Add predictions to the DataFrame
-    df['Prediction'] = predictions
-
-    # Reattach the 'claim_id' column to the DataFrame
+    # Build result DataFrame
+    result_df = df_features.copy()
     if claim_ids is not None:
-        df['claim_id'] = claim_ids
+        result_df.insert(0, 'claim_id', claim_ids.values)
+    result_df['Prediction'] = predictions
+    result_df['Status'] = result_df['Prediction'].map({1: '✅ Normal', -1: '🚨 Anomaly'})
 
-    # Reorder columns to have 'claim_id' first
-    if 'claim_id' in df.columns:
-        df = df[['claim_id'] + [col for col in df.columns if col != 'claim_id']]
-
-    # Render the DataFrame as an HTML table
-    return render_template('result.html', tables=[df.to_html(classes='data', header="true")])
+    return render_template('result.html', tables=[result_df.to_html(classes='data', header=True, index=False)])
 
 if __name__ == '__main__':
     app.run(debug=True, port=5005)

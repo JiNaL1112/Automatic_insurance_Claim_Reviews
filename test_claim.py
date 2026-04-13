@@ -18,13 +18,17 @@ test_data = [
 # Convert to DataFrame
 df_test = pd.DataFrame(test_data)
 
-# Make the prediction request
-response = requests.post("http://127.0.0.1:3000/predict", json=df_test.to_dict(orient="records"))
+# Make the prediction request — wrap records in {"data": [...]} as BentoML expects
+response = requests.post(
+    "http://127.0.0.1:3000/predict",
+    json={"data": df_test.to_dict(orient="records")}
+)
 
 # Check the response
 if response.status_code == 200:
     predictions = response.json()["predictions"]
     for i, prediction in enumerate(predictions):
-        print(f"Test Case {i+1}: Prediction: {prediction}")
+        label = "🚨 Anomaly" if prediction == -1 else "✅ Normal"
+        print(f"Test Case {i+1}: {label} (raw: {prediction})")
 else:
     print(f"Error: {response.status_code} - {response.text}")
