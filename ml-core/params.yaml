@@ -1,0 +1,29 @@
+data:
+  output_path: data/synthetic_health_claims.csv
+  num_normal_samples: 1000
+  num_anomalies: 50
+  random_seed: 42
+
+model:
+  n_estimators: 100
+  contamination: 0.05
+  random_seed: 42
+  test_size: 0.2
+  features:
+    - claim_amount
+    - num_services
+    - patient_age
+    - provider_id
+    - days_since_last_claim
+
+mlflow:
+  tracking_uri: http://127.0.0.1:5000
+  experiment_name: Health Insurance Claim Anomaly Detection
+
+serving:
+  bentoml_model_name: health_insurance_anomaly_detector
+  port: 3000
+
+app:
+  port: 5005
+  bentoml_url: http://127.0.0.1:3000/predict

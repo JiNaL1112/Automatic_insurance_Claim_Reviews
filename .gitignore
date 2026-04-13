@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data files — tracked by DVC instead
+data/
+*.csv
+
+# Model artifacts
+model.pkl
+*.pkl
+*.joblib
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# BentoML
+bentoml/
+
+# Environment variables
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flask runtime
+app/src/api/static/prediction_pie_chart.png
+session_data.csv
+
+# Docker
+*.tar
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ml-core dependencies
+        run: pip install -r ml-core/requirements.txt
+
+      - name: Install app dependencies
+        run: pip install -r app/requirements.txt
+
+      - name: Install dev tools
+        run: pip install pytest ruff
+
+      - name: Lint
+        run: ruff check ml-core/src/ app/src/
+
+      - name: Generate data
+        run: python ml-core/src/data/generate.py
+
+      - name: Run ml-core tests
+        run: pytest ml-core/tests/ -v
+
+      - name: Run app tests
+        run: pytest app/tests/ -v
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build BentoML Docker image
+        run: docker build -f ml-core/Dockerfile.ml -t fraud-detection-ml:latest ./ml-core
+
+      - name: Build Flask Docker image
+        run: docker build -f app/Dockerfile.app -t fraud-detection-app:latest ./app

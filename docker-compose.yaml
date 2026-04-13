@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+
+  mlflow:
+    image: python:3.11-slim
+    container_name: mlflow
+    working_dir: /app
+    volumes:
+      - ./mlruns:/app/mlruns
+    ports:
+      - "5000:5000"
+    command: >
+      bash -c "pip install mlflow --quiet &&
+               mlflow server --host 0.0.0.0 --port 5000
+               --backend-store-uri sqlite:///mlruns/mlflow.db
+               --default-artifact-root /app/mlruns"
+
+  bentoml:
+    build:
+      context: ./ml-core
+      dockerfile: Dockerfile.ml
+    container_name: bentoml
+    ports:
+      - "3000:3000"
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      - mlflow
+    command: bentoml serve src/serving/service.py --host 0.0.0.0 --port 3000
+
+  flask:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.app
+    container_name: flask_app
+    ports:
+      - "5005:5005"
+    environment:
+      - BENTOML_URL=http://bentoml:3000/predict
+    depends_on:
+      - bentoml
+    command: python src/api/flask_app.py
