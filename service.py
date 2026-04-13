@@ -1,16 +1,17 @@
+from __future__ import annotations
 import bentoml
-from bentoml.io import JSON, PandasDataFrame
+import pandas as pd
 
-# Load the registered model
-model_runner = bentoml.sklearn.get("health_insurance_anomaly_detector:latest").to_runner()
+@bentoml.service(name="health_insurance_anomaly_detection_service")
+class AnomalyDetectionService:
 
-# Create a BentoML Service
-svc = bentoml.Service("health_insurance_anomaly_detection_service", runners=[model_runner])
+    def __init__(self):
+        self.model = bentoml.sklearn.load_model(
+            bentoml.models.get("health_insurance_anomaly_detector:latest")
+        )
 
-# Define an API endpoint for prediction
-@svc.api(input=PandasDataFrame(), output=JSON())
-def predict(data):
-    # Make predictions
-    predictions = model_runner.predict.run(data)
-    # Return predictions as JSON
-    return {"predictions": predictions.tolist()}
+    @bentoml.api
+    def predict(self, data: list[dict]) -> dict:
+        df = pd.DataFrame(data)
+        predictions = self.model.predict(df)
+        return {"predictions": predictions.tolist()}

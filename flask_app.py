@@ -31,7 +31,7 @@ def predict():
 
     # Send the DataFrame to the BentoML service
     response = requests.post(
-        'http://127.0.0.1:3000/predict',  # BentoML endpoint
+        'http://127.0.0.1:5000/predict',  # BentoML endpoint
         json=df.to_dict(orient='records')
     )
 
