@@ -1,0 +1,41 @@
+stages:
+
+  generate:
+    cmd: python src/data/generate.py
+    deps:
+      - src/data/generate.py
+      - params.yaml
+    params:
+      - data.num_normal_samples
+      - data.num_anomalies
+      - data.random_seed
+      - data.output_path
+    outs:
+      - ../synthetic_health_claims.csv
+
+  train:
+    cmd: python src/models/pipeline.py
+    deps:
+      - src/models/pipeline.py
+      - ../synthetic_health_claims.csv
+      - params.yaml
+    params:
+      - model
+      - mlflow
+      - serving
+    outs:
+      - model.pkl
+    metrics:
+      - metrics.json:
+          cache: false
+
+  evaluate:
+    cmd: python src/models/evaluate.py
+    deps:
+      - src/models/evaluate.py
+      - model.pkl
+      - ../synthetic_health_claims.csv
+      - params.yaml
+    metrics:
+      - eval_metrics.json:
+          cache: false

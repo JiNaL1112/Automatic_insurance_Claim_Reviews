@@ -10,6 +10,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      PYTHONPATH: ${{ github.workspace }}/app/src:${{ github.workspace }}/ml-core/src
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,14 +22,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install ml-core dependencies
-        run: pip install -r ml-core/requirements.txt
-
-      - name: Install app dependencies
-        run: pip install -r app/requirements.txt
-
-      - name: Install dev tools
-        run: pip install pytest ruff
+      - name: Install all dependencies
+        run: |
+          pip install -r ml-core/requirements.txt
+          pip install -r app/requirements.txt
+          pip install pytest ruff pytest-cov pytest-mock
 
       - name: Lint
         run: ruff check ml-core/src/ app/src/
@@ -35,19 +35,10 @@ jobs:
         run: python ml-core/src/data/generate.py
 
       - name: Run ml-core tests
-        run: pytest ml-core/tests/ -v
-
-      - name: Run app tests
-        run: pytest app/tests/ -v
-
-      - name: Install dev tools
-        run: pip install pytest ruff pytest-cov pytest-mock
+        run: pytest ml-core/tests/ -v --cov=ml-core/src --cov-fail-under=70
 
       - name: Run app tests
         run: pytest app/src/tests/ -v --cov=app/src/api --cov-fail-under=70
-
-      - name: Run ml-core tests
-        run: pytest ml-core/tests/ -v --cov=ml-core/src --cov-fail-under=70
 
   build:
     runs-on: ubuntu-latest

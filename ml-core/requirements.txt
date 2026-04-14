@@ -1,5 +1,8 @@
 mlflow
 pandas
 numpy
+scikit-learn
 bentoml
+pydantic>=2.0
 pydantic-settings>=2.0
+pyyaml

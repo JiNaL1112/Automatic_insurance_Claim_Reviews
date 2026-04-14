@@ -15,6 +15,11 @@ services:
                mlflow server --host 0.0.0.0 --port 5000
                --backend-store-uri sqlite:///mlruns/mlflow.db
                --default-artifact-root /app/mlruns"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   bentoml:
     build:
@@ -26,8 +31,14 @@ services:
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
     depends_on:
-      - mlflow
+      mlflow:
+        condition: service_healthy
     command: bentoml serve src/serving/service.py --host 0.0.0.0 --port 3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   flask:
     build:
@@ -39,24 +50,11 @@ services:
     environment:
       - BENTOML_URL=http://bentoml:3000/predict
     depends_on:
-      - bentoml
+      bentoml:
+        condition: service_healthy
     command: python src/api/flask_app.py
-    
-flask:
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
-    interval: 15s
-    timeout: 5s
-    retries: 3
-
-bentoml:
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
-    interval: 15s
-    timeout: 5s
-    retries: 3
-
-flask:
-  depends_on:
-    bentoml:
-      condition: service_healthy   # now waits for real readiness
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
