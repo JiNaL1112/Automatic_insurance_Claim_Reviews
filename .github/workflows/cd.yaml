@@ -24,6 +24,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Build and push MLflow image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.mlflow
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-mlflow:latest
+
       - name: Build and push BentoML image
         uses: docker/build-push-action@v5
         with:
