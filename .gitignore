@@ -14,7 +14,7 @@ venv/
 env/
 
 # Data files — tracked by DVC instead
-data/
+/data/
 *.csv
 
 # Model artifacts

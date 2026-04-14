@@ -13,6 +13,7 @@ import importlib
 import os
 import sys
 import types
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -44,7 +45,22 @@ def generated_csv(params, csv_file):
     Falls back to the mixed_df csv fixture when the generator module is not
     importable (e.g. running tests without the full ml-core package installed).
     """
-    return csv_file
+    try:
+        from src.data.generate import generate_dataset  # type: ignore
+    except Exception:
+        return csv_file
+
+    dp = params["data"]
+    out_dir = Path(os.path.dirname(csv_file))
+    out_path = out_dir / "generated_synthetic_health_claims.csv"
+
+    df = generate_dataset(
+        num_normal_samples=dp["num_normal_samples"],
+        num_anomalies=dp["num_anomalies"],
+        random_seed=dp["random_seed"],
+    )
+    df.to_csv(out_path, index=False)
+    return str(out_path)
 
 
 # ── column / shape tests ──────────────────────────────────────────────────────

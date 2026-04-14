@@ -37,7 +37,9 @@ jobs:
         run: ruff check ml-core/src/ app/src/
 
       - name: Generate data
-        run: python ml-core/src/data/generate.py
+        run: |
+          cd ml-core
+          python src/data/generate.py
 
       - name: Validate imports (ml-core)
         run: python -m compileall ml-core/src
