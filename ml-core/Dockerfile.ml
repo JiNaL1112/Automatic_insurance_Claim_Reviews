@@ -8,7 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 COPY src/ src/
 COPY params.yaml .
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
 EXPOSE 3000
 
-CMD ["bentoml", "serve", "src/serving/service.py", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["./entrypoint.sh"]
