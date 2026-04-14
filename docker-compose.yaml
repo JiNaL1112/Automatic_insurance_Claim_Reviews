@@ -32,17 +32,16 @@ services:
     depends_on:
       mlflow:
         condition: service_healthy
-    command: bentoml serve src/serving/service.py --host 0.0.0.0 --port 3000
+    # command: removed — let entrypoint.sh handle train + serve
     healthcheck:
       test: ["CMD", "python3", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:3000/healthz', timeout=3)"]
-      start_period: 120s   # increase — training takes time
+            "import urllib.request; urllib.request.urlopen('http://localhost:3000/healthz', timeout=3)"]
+      start_period: 120s
       interval: 15s
       timeout: 5s
       retries: 10
     volumes:
       - ./bentoml_models:/root/bentoml/models
-
   flask:
     build:
       context: ./app
@@ -55,7 +54,6 @@ services:
     depends_on:
       bentoml:
         condition: service_healthy
-    command: python src/api/flask_app.py
     healthcheck:
       test: ["CMD", "python3", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:5005/health', timeout=3)"]
