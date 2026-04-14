@@ -1,5 +1,5 @@
 data:
-  output_path: data/synthetic_health_claims.csv
+  output_path: ../synthetic_health_claims.csv
   num_normal_samples: 1000
   num_anomalies: 50
   random_seed: 42

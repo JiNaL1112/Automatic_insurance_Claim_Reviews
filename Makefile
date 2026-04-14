@@ -1,4 +1,4 @@
-.PHONY: help install generate train serve test lint docker-up docker-down clean
+.PHONY: help install generate train serve test lint docker-up docker-down clean app
 
 help:
 	@echo ""
@@ -22,13 +22,13 @@ generate:
 	python ml-core/src/data/generate.py
 
 train:
-	python ml-core/src/models/pipeline.py
+	cd ml-core && python src/models/pipeline.py
 
 serve:
 	cd ml-core && bentoml serve src/serving/service.py --reload
 
 app:
-	python app/src/api/flask_app.py
+	cd app && python src/api/flask_app.py
 
 test:
 	pytest ml-core/tests/ -v
