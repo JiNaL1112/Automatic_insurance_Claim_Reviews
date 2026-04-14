@@ -1,22 +1,21 @@
-version: "3.9"
-
 services:
 
   mlflow:
-    image: python:3.11-slim
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
     container_name: mlflow
-    working_dir: /app
     volumes:
       - ./mlruns:/app/mlruns
     ports:
       - "5000:5000"
-    command: >
-      bash -c "pip install mlflow --quiet &&
-               mlflow server --host 0.0.0.0 --port 5000
-               --backend-store-uri sqlite:///mlruns/mlflow.db
-               --default-artifact-root /app/mlruns"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      # Use python3 (always available in the image) instead of curl
+      # Sends a plain GET /health — no Host header tricks needed since
+      # MLFLOW_SERVER_ALLOWED_HOSTS=* accepts everything
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      start_period: 40s
       interval: 15s
       timeout: 5s
       retries: 5
@@ -35,10 +34,14 @@ services:
         condition: service_healthy
     command: bentoml serve src/serving/service.py --host 0.0.0.0 --port 3000
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:3000/healthz', timeout=3)"]
+      start_period: 20s
       interval: 15s
       timeout: 5s
       retries: 3
+    volumes:
+      - ./bentoml_models:/root/bentoml/models
 
   flask:
     build:
@@ -54,7 +57,9 @@ services:
         condition: service_healthy
     command: python src/api/flask_app.py
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5005/health', timeout=3)"]
+      start_period: 15s
       interval: 15s
       timeout: 5s
       retries: 3

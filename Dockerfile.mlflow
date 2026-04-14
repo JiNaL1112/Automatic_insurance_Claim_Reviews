@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+# Install mlflow at build time — no runtime pip install delay
+RUN pip install --no-cache-dir mlflow
+
+# Create artifact directory
+RUN mkdir -p /app/mlruns
+WORKDIR /app
+
+# Accept ALL host headers inside Docker network
+# Safe here because the container is not exposed to the public internet directly —
+# only the mapped port 5000 on the host is accessible, and Docker's network
+# isolates inter-container traffic. Override with specific hosts for production.
+ENV MLFLOW_SERVER_ALLOWED_HOSTS=*
+
+EXPOSE 5000
+
+# Exec form (array) — no shell involved, so * in env var is NEVER glob-expanded
+# --workers 1 cuts startup time from ~60s to ~20s for single-node Docker
+CMD ["mlflow", "server", \
+     "--host", "0.0.0.0", \
+     "--port", "5000", \
+     "--backend-store-uri", "sqlite:///mlruns/mlflow.db", \
+     "--default-artifact-root", "/app/mlruns", \
+     "--workers", "1"]
