@@ -6,7 +6,6 @@ import pickle
 import yaml
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
 import mlflow
 import logging
 import sys

@@ -1,7 +1,7 @@
 import logging
 import json
 import sys
-from config import settings
+from api.config import settings
 
 class JSONFormatter(logging.Formatter):
     def format(self, record):

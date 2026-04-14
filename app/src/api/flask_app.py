@@ -3,10 +3,10 @@ import pandas as pd
 import requests
 import base64
 import io
-from config import settings
-from schemas import Claim, ClaimBatch
+from api.config import settings
+from api.schemas import ClaimBatch
 from pydantic import ValidationError
-from logger import get_logger
+from api.logger import get_logger
 import time
 
 START_TIME = time.time()
