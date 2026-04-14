@@ -2,6 +2,13 @@
 
 An end-to-end MLOps pipeline for detecting fraudulent health insurance claims using an **Isolation Forest** model, served via **BentoML** and exposed through a **Flask** web application. Experiment tracking is handled by **MLflow**.
 
+## 🗂 Versions
+| Tag   | What it covers                                      | Medium article |
+|-------|-----------------------------------------------------|----------------|
+| v1.0  | Local pipeline: train → MLflow → BentoML → Flask   | [Read →](link) |
+| v2.0  | Docker Compose, GitHub Actions CI/CD, pytest, DVC   | [Read →](link) |
+
+
 ---
 
 ## 📋 Table of Contents
