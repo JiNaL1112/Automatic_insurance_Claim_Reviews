@@ -92,4 +92,4 @@ def health():
 
 
 if __name__ == '__main__':
-    app.run(debug=settings.flask_debug, port=settings.flask_port)
+    app.run(host="0.0.0.0", debug=settings.flask_debug, port=settings.flask_port)

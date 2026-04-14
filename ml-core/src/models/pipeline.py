@@ -7,6 +7,7 @@ import mlflow.sklearn
 import bentoml
 import pickle
 import logging, json, sys
+import os
 
 
 logging.basicConfig(
@@ -41,7 +42,8 @@ def run_pipeline():
     )
 
     # --- MLflow tracking ---
-    mlflow.set_tracking_uri(ml["tracking_uri"])
+    
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", ml["tracking_uri"]))
     mlflow.set_experiment(ml["experiment_name"])
 
     with mlflow.start_run():

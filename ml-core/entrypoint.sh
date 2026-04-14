@@ -5,7 +5,7 @@ echo "Checking for registered model..."
 if ! bentoml models get health_insurance_anomaly_detector:latest &>/dev/null; then
     echo "Model not found. Running pipeline to train and register..."
     python src/data/generate.py
-    cd /app && python src/models/pipeline.py
+    cd /app && python src/models/pipeline.py 
     echo "Model registered successfully."
 else
     echo "Model already registered. Skipping training."
