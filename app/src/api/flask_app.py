@@ -3,10 +3,19 @@ import pandas as pd
 import requests
 import base64
 import io
+from config import settings
+from schemas import Claim, ClaimBatch
+from pydantic import ValidationError
+from logger import get_logger
+import time
+
+
+START_TIME = time.time()
+
 
 app = Flask(__name__)
 
-BENTOML_URL = 'http://127.0.0.1:3000/predict'  # BentoML runs on 3000, NOT 5000 (that's MLflow)
+BENTOML_URL = settings.bentoml_url
 FEATURES = ['claim_amount', 'num_services', 'patient_age', 'provider_id', 'days_since_last_claim']
 
 @app.route('/')
@@ -15,7 +24,14 @@ def index():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    file_data = request.form.get('file')
+    try:
+        df = pd.read_csv(io.StringIO(decoded_file.decode('utf-8')))
+        records = df[FEATURES].to_dict(orient='records')
+        batch = ClaimBatch(data=records)   # validates here
+    except ValidationError as e:
+        return {"error": "Invalid input", "details": e.errors()}, 422
+    except KeyError as e:
+        return {"error": f"Missing required column: {e}"}, 422
 
     # Decode the Base64 encoded file content
     decoded_file = base64.b64decode(file_data.split(',')[1])
@@ -51,3 +67,11 @@ def predict():
 
 if __name__ == '__main__':
     app.run(debug=True, port=5005)
+
+@app.route('/health')
+def health():
+    return {
+        "status": "ok",
+        "service": "flask-app",
+        "uptime_seconds": round(time.time() - START_TIME, 1),
+    }, 200

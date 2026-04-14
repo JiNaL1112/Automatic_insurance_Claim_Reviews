@@ -6,6 +6,18 @@ import mlflow
 import mlflow.sklearn
 import bentoml
 import pickle
+import logging, json, sys
+
+
+logging.basicConfig(
+    stream=sys.stdout,
+    format='{"level":"%(levelname)s","msg":"%(message)s","time":"%(asctime)s"}',
+    level=logging.INFO,
+)
+
+log = logging.getLogger(__name__)
+
+
 
 def load_params(path="params.yaml"):
     with open(path) as f:
@@ -59,8 +71,8 @@ def run_pipeline():
         })
         mlflow.sklearn.log_model(model, "model")
 
-        print(f"Train anomaly %: {train_anomaly_pct:.2f}")
-        print(f"Test  anomaly %: {test_anomaly_pct:.2f}")
+        log.info("Train anomaly %: %.2f", train_anomaly_pct)
+        log.info("Test  anomaly %: %.2f", test_anomaly_pct)
 
         # Validate before registering
         if not (2.0 <= test_anomaly_pct <= 10.0):

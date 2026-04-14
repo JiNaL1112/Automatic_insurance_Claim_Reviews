@@ -40,6 +40,15 @@ jobs:
       - name: Run app tests
         run: pytest app/tests/ -v
 
+      - name: Install dev tools
+        run: pip install pytest ruff pytest-cov pytest-mock
+
+      - name: Run app tests
+        run: pytest app/src/tests/ -v --cov=app/src/api --cov-fail-under=70
+
+      - name: Run ml-core tests
+        run: pytest ml-core/tests/ -v --cov=ml-core/src --cov-fail-under=70
+
   build:
     runs-on: ubuntu-latest
     needs: test

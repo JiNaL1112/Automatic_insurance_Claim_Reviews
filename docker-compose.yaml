@@ -41,3 +41,22 @@ services:
     depends_on:
       - bentoml
     command: python src/api/flask_app.py
+    
+flask:
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+
+bentoml:
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+
+flask:
+  depends_on:
+    bentoml:
+      condition: service_healthy   # now waits for real readiness
