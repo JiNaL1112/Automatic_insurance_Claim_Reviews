@@ -67,9 +67,9 @@ def params_file(params, tmp_path):
 
 @pytest.fixture
 def normal_df():
-    """210 rows of realistic normal claim data."""
+    """200 rows of realistic normal claim data."""
     rng = np.random.default_rng(42)
-    n = 210
+    n = 200
     return pd.DataFrame({
         "claim_amount":          rng.uniform(100, 5_000, n),
         "num_services":          rng.integers(1, 10, n),
