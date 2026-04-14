@@ -41,7 +41,7 @@ docker-up:
 	docker-compose up --build
 
 docker-down:
-	docker-compose down
+	docker-compose down --volumes --remove-orphans
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
