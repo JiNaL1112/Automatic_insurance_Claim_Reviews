@@ -1,22 +1,53 @@
 name: CD
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main, develop]
+  release:
+    types: [published]
+
+env:
+  # Centralise image names as environment variables.
+  MLFLOW_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-mlflow
+  ML_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-ml
+  APP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-app
 
 jobs:
-  deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  # Build all three images in parallel using a matrix strategy.
+  build-and-push:
+    name: Build & push (${{ matrix.name }})
     runs-on: ubuntu-latest
+
+    # Give this job permission to request a short-lived OIDC token from GitHub.
+    # Required for keyless image signing with cosign (Change 6 below).
+    permissions:
+      contents: read
+      id-token: write   # prerequisite — OIDC token for cosign
+
+    strategy:
+      fail-fast: false  # If one image fails, don't cancel the other two builds.
+      matrix:
+        include:
+          - name: mlflow
+            context: .
+            dockerfile: ./Dockerfile.mlflow
+            image_env: MLFLOW_IMAGE
+
+          - name: ml-core
+            context: ./ml-core
+            dockerfile: ./ml-core/Dockerfile.ml
+            image_env: ML_IMAGE
+
+          - name: app
+            context: ./app
+            dockerfile: ./app/Dockerfile.app
+            image_env: APP_IMAGE
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          # Build the exact revision that CI tested
-          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # Add Docker layer caching via GitHub Actions cache.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -24,26 +55,140 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push MLflow image
+      # Push versioned tags instead of only :latest.
+      - name: Build and push ${{ matrix.name }}
+        id: build
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile.mlflow
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-mlflow:latest
+          tags: |
+            ${{ env[matrix.image_env] }}:latest
+            ${{ env[matrix.image_env] }}:${{ github.ref_name }}
+            ${{ env[matrix.image_env] }}:sha-${{ github.sha }}
+          # Layer caching — store in GitHub Actions cache, restore on next run
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # Embed git metadata into the image for traceability
+          labels: |
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.repositoryUrl }}
 
-      - name: Build and push BentoML image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./ml-core
-          file: ./ml-core/Dockerfile.ml
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-ml:latest
+      # ───────────────────────────────────────────────────────────────────────
+      # Sign every image with cosign (keyless, via GitHub OIDC).
+      #
+      # WHY: Without signing, anyone who can push to your Docker Hub account
+      # could replace your image with a malicious one and your pipeline would
+      # pull and run it without knowing. Image signing creates a cryptographic
+      # proof that this specific image digest was built by THIS GitHub Actions
+      # workflow from THIS repository.
+      #
+      # Keyless signing means no long-lived private key to rotate or leak.
+      # GitHub issues a short-lived OIDC token for the workflow run, cosign
+      # uses it to sign, and the signature is stored in the Sigstore transparency
+      # log (Rekor) — publicly verifiable forever.
+      #
+      # IMPORTANCE: Supply chain security. If a dependency is compromised and
+      # someone injects a bad image, verification will fail. Required for
+      # compliance frameworks like SLSA Level 2+.
+      # ───────────────────────────────────────────────────────────────────────
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
 
-      - name: Build and push Flask image
-        uses: docker/build-push-action@v5
+      - name: Sign image with cosign (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ env[matrix.image_env] }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+  # Add a post-deploy smoke test job.
+  smoke-test:
+    name: Smoke test
+    needs: build-and-push          # Only run after all three images are pushed
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          context: ./app
-          file: ./app/Dockerfile.app
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-app:latest
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull versioned images
+        # Pull the exact SHA-tagged images we just built — not :latest.
+        # This guarantees we're testing what we just pushed, not a cached older image.
+        run: |
+          docker pull ${{ env.MLFLOW_IMAGE }}:sha-${{ github.sha }}
+          docker pull ${{ env.ML_IMAGE }}:sha-${{ github.sha }}
+          docker pull ${{ env.APP_IMAGE }}:sha-${{ github.sha }}
+
+      - name: Tag images as :latest locally for docker-compose
+        run: |
+          docker tag ${{ env.MLFLOW_IMAGE }}:sha-${{ github.sha }} ${{ env.MLFLOW_IMAGE }}:latest
+          docker tag ${{ env.ML_IMAGE }}:sha-${{ github.sha }}     ${{ env.ML_IMAGE }}:latest
+          docker tag ${{ env.APP_IMAGE }}:sha-${{ github.sha }}    ${{ env.APP_IMAGE }}:latest
+
+      - name: Start services
+        run: docker compose up -d --no-build
+
+      - name: Wait for Flask /health to respond
+        # Retry for up to 120 seconds — BentoML needs time to train + register
+        # the model on first boot (see entrypoint.sh). Without this wait, the
+        # curl would hit a service that isn't ready and falsely fail.
+        run: |
+          for i in $(seq 1 24); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5005/health || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Flask /health returned 200 — smoke test passed."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Flask /health never returned 200 after 120s."
+          docker compose logs
+          exit 1
+
+      - name: Tear down services
+        if: always()   # Run even if the smoke test step failed — always clean up
+        run: docker compose down --volumes --remove-orphans
+
+  # Add a deployment notification job.
+
+  notify:
+    name: Notify deployment
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    # Run on both success AND failure so the team is never left guessing.
+    if: always()
+
+    steps:
+      - name: Notify success
+        if: needs.smoke-test.result == 'success'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ *Deployed ${{ github.ref_name }}* to production.\nCommit: `${{ github.sha }}`\nImages tagged: `:${{ github.ref_name }}` and `:sha-${{ github.sha }}`\nRelease: ${{ github.event.release.html_url }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify failure
+        if: needs.smoke-test.result != 'success'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ *Deploy FAILED for ${{ github.ref_name }}*.\nCommit: `${{ github.sha }}`\nCheck the run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
