@@ -4,15 +4,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.mlflow
+    # ADD THIS: tells docker compose which registry image to use when --no-build
+    # is passed. Without this, compose invents a name from the folder and the
+    # smoke test pull step and the compose up step use two different names.
+    image: ${DOCKERHUB_USERNAME}/fraud-detection-mlflow:${IMAGE_TAG:-latest}
     container_name: mlflow
     volumes:
       - ./mlruns:/app/mlruns
     ports:
       - "5000:5000"
     healthcheck:
-      # Use python3 (always available in the image) instead of curl
-      # Sends a plain GET /health — no Host header tricks needed since
-      # MLFLOW_SERVER_ALLOWED_HOSTS=* accepts everything
       test: ["CMD", "python3", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
       start_period: 40s
@@ -24,6 +25,8 @@ services:
     build:
       context: ./ml-core
       dockerfile: Dockerfile.ml
+    # ADD THIS: same reason as mlflow above
+    image: ${DOCKERHUB_USERNAME}/fraud-detection-ml:${IMAGE_TAG:-latest}
     container_name: bentoml
     ports:
       - "3000:3000"
@@ -32,7 +35,6 @@ services:
     depends_on:
       mlflow:
         condition: service_healthy
-    # command: removed — let entrypoint.sh handle train + serve
     healthcheck:
       test: ["CMD", "python3", "-c",
             "import urllib.request; urllib.request.urlopen('http://localhost:3000/healthz', timeout=3)"]
@@ -42,10 +44,13 @@ services:
       retries: 10
     volumes:
       - ./bentoml_models:/root/bentoml/models
+
   flask:
     build:
       context: ./app
       dockerfile: Dockerfile.app
+    # ADD THIS: same reason as above
+    image: ${DOCKERHUB_USERNAME}/fraud-detection-app:${IMAGE_TAG:-latest}
     container_name: flask_app
     ports:
       - "5005:5005"

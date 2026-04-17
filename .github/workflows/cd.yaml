@@ -5,25 +5,22 @@ on:
     types: [published]
 
 env:
-  # Centralise image names as environment variables.
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   MLFLOW_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-mlflow
   ML_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-ml
   APP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/fraud-detection-app
 
 jobs:
-  # Build all three images in parallel using a matrix strategy.
+
   build-and-push:
     name: Build & push (${{ matrix.name }})
     runs-on: ubuntu-latest
-
-    # Give this job permission to request a short-lived OIDC token from GitHub.
-    # Required for keyless image signing with cosign (Change 6 below).
     permissions:
       contents: read
-      id-token: write   # prerequisite — OIDC token for cosign
+      id-token: write
 
     strategy:
-      fail-fast: false  # If one image fails, don't cancel the other two builds.
+      fail-fast: false
       matrix:
         include:
           - name: mlflow
@@ -45,7 +42,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Add Docker layer caching via GitHub Actions cache.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -55,7 +51,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Push versioned tags instead of only :latest.
       - name: Build and push ${{ matrix.name }}
         id: build
         uses: docker/build-push-action@v5
@@ -67,47 +62,25 @@ jobs:
             ${{ env[matrix.image_env] }}:latest
             ${{ env[matrix.image_env] }}:${{ github.ref_name }}
             ${{ env[matrix.image_env] }}:sha-${{ github.sha }}
-          # Layer caching — store in GitHub Actions cache, restore on next run
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
-          # Embed git metadata into the image for traceability
           labels: |
             org.opencontainers.image.version=${{ github.ref_name }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.repositoryUrl }}
 
-      # ───────────────────────────────────────────────────────────────────────
-      # Sign every image with cosign (keyless, via GitHub OIDC).
-      #
-      # WHY: Without signing, anyone who can push to your Docker Hub account
-      # could replace your image with a malicious one and your pipeline would
-      # pull and run it without knowing. Image signing creates a cryptographic
-      # proof that this specific image digest was built by THIS GitHub Actions
-      # workflow from THIS repository.
-      #
-      # Keyless signing means no long-lived private key to rotate or leak.
-      # GitHub issues a short-lived OIDC token for the workflow run, cosign
-      # uses it to sign, and the signature is stored in the Sigstore transparency
-      # log (Rekor) — publicly verifiable forever.
-      #
-      # IMPORTANCE: Supply chain security. If a dependency is compromised and
-      # someone injects a bad image, verification will fail. Required for
-      # compliance frameworks like SLSA Level 2+.
-      # ───────────────────────────────────────────────────────────────────────
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Sign image with cosign (keyless)
+      - name: Sign image
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           IMAGE: ${{ env[matrix.image_env] }}
-        run: |
-          cosign sign --yes "${IMAGE}@${DIGEST}"
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
-  # Add a post-deploy smoke test job.
   smoke-test:
     name: Smoke test
-    needs: build-and-push          # Only run after all three images are pushed
+    needs: build-and-push
     runs-on: ubuntu-latest
 
     steps:
@@ -120,52 +93,48 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Pull versioned images
-        # Pull the exact SHA-tagged images we just built — not :latest.
-        # This guarantees we're testing what we just pushed, not a cached older image.
+      - name: Pull the exact images we just built
+        env:
+          TAG: sha-${{ github.sha }}
         run: |
-          docker pull ${{ env.MLFLOW_IMAGE }}:sha-${{ github.sha }}
-          docker pull ${{ env.ML_IMAGE }}:sha-${{ github.sha }}
-          docker pull ${{ env.APP_IMAGE }}:sha-${{ github.sha }}
+          docker pull ${{ env.MLFLOW_IMAGE }}:${TAG}
+          docker pull ${{ env.ML_IMAGE }}:${TAG}
+          docker pull ${{ env.APP_IMAGE }}:${TAG}
 
-      - name: Tag images as :latest locally for docker-compose
-        run: |
-          docker tag ${{ env.MLFLOW_IMAGE }}:sha-${{ github.sha }} ${{ env.MLFLOW_IMAGE }}:latest
-          docker tag ${{ env.ML_IMAGE }}:sha-${{ github.sha }}     ${{ env.ML_IMAGE }}:latest
-          docker tag ${{ env.APP_IMAGE }}:sha-${{ github.sha }}    ${{ env.APP_IMAGE }}:latest
-
-      - name: Start services
+      - name: Start all services
+        # DOCKERHUB_USERNAME and IMAGE_TAG are read by docker-compose.yaml via
+        # the image: fields we added. --no-build tells compose to use those
+        # pre-pulled images instead of trying to build locally.
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG: sha-${{ github.sha }}
         run: docker compose up -d --no-build
 
-      - name: Wait for Flask /health to respond
-        # Retry for up to 120 seconds — BentoML needs time to train + register
-        # the model on first boot (see entrypoint.sh). Without this wait, the
-        # curl would hit a service that isn't ready and falsely fail.
+      - name: Wait for Flask /health (up to 120s)
         run: |
+          echo "Waiting for Flask /health..."
           for i in $(seq 1 24); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5005/health || echo "000")
-            echo "Attempt $i: HTTP $STATUS"
+            echo "Attempt $i/24: HTTP $STATUS"
             if [ "$STATUS" = "200" ]; then
-              echo "Flask /health returned 200 — smoke test passed."
+              echo "Smoke test passed."
               exit 0
             fi
             sleep 5
           done
-          echo "Flask /health never returned 200 after 120s."
+          echo "Smoke test FAILED — Flask never returned 200 after 120s."
+          echo "--- docker compose logs ---"
           docker compose logs
           exit 1
 
-      - name: Tear down services
-        if: always()   # Run even if the smoke test step failed — always clean up
+      - name: Tear down
+        if: always()
         run: docker compose down --volumes --remove-orphans
-
-  # Add a deployment notification job.
 
   notify:
     name: Notify deployment
     needs: smoke-test
     runs-on: ubuntu-latest
-    # Run on both success AND failure so the team is never left guessing.
     if: always()
 
     steps:
@@ -175,7 +144,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "✅ *Deployed ${{ github.ref_name }}* to production.\nCommit: `${{ github.sha }}`\nImages tagged: `:${{ github.ref_name }}` and `:sha-${{ github.sha }}`\nRelease: ${{ github.event.release.html_url }}"
+              "text": "✅ *Deployed ${{ github.ref_name }}* — smoke test passed.\nCommit: `${{ github.sha }}`\nRelease: ${{ github.event.release.html_url }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -187,7 +156,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ *Deploy FAILED for ${{ github.ref_name }}*.\nCommit: `${{ github.sha }}`\nCheck the run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "text": "❌ *Deploy FAILED — ${{ github.ref_name }}*.\nCommit: `${{ github.sha }}`\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
