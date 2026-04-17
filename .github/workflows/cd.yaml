@@ -1,5 +1,9 @@
 name: CD
 
+# on:
+#   release:
+#     types: [published]
+
 on:
   release:
     types: [published]
@@ -93,13 +97,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Pull the exact images we just built
+      - name: Pull images via docker compose (sha tag)
         env:
-          TAG: sha-${{ github.sha }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG: sha-${{ github.sha }}
         run: |
-          docker pull ${{ env.MLFLOW_IMAGE }}:${TAG}
-          docker pull ${{ env.ML_IMAGE }}:${TAG}
-          docker pull ${{ env.APP_IMAGE }}:${TAG}
+          docker compose config
+          docker compose pull
 
       - name: Start all services
         # DOCKERHUB_USERNAME and IMAGE_TAG are read by docker-compose.yaml via

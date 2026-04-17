@@ -1,3 +1,5 @@
+name: automatic_insurance_claim_reviews
+
 services:
 
   mlflow:
