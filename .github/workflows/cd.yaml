@@ -1,12 +1,23 @@
 name: CD
 
-# on:
-#   release:
-#     types: [published]
-
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Where to run CD (non-prod). Release events always mean prod."
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - staging
+      push_latest:
+        description: "Also push the :latest tag (avoid enabling for dev unless you really want it)."
+        type: boolean
+        required: false
+        default: false
 
 env:
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -55,6 +66,32 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Compute image tags
+        id: meta
+        shell: bash
+        env:
+          IMAGE: ${{ env[matrix.image_env] }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_LATEST: ${{ inputs.push_latest }}
+        run: |
+          set -euo pipefail
+
+          TAGS=()
+          TAGS+=("${IMAGE}:${REF_NAME}")
+          TAGS+=("${IMAGE}:sha-${SHA}")
+
+          if [[ "${EVENT_NAME}" == "release" || "${PUSH_LATEST}" == "true" ]]; then
+            TAGS+=("${IMAGE}:latest")
+          fi
+
+          {
+            echo "tags<<EOF"
+            printf "%s\n" "${TAGS[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Build and push ${{ matrix.name }}
         id: build
         uses: docker/build-push-action@v5
@@ -62,10 +99,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
-          tags: |
-            ${{ env[matrix.image_env] }}:latest
-            ${{ env[matrix.image_env] }}:${{ github.ref_name }}
-            ${{ env[matrix.image_env] }}:sha-${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           labels: |
@@ -142,13 +176,35 @@ jobs:
     if: always()
 
     steps:
+      - name: Compute notification fields
+        id: notify_meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.environment }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            DEPLOY_ENV="prod"
+            RELEASE_LINE="Release: ${RELEASE_URL}"
+          else
+            DEPLOY_ENV="${INPUT_ENV}"
+            RELEASE_LINE="Release: (manual run)"
+          fi
+
+          echo "deploy_env=${DEPLOY_ENV}" >> "${GITHUB_OUTPUT}"
+          echo "release_line=${RELEASE_LINE}" >> "${GITHUB_OUTPUT}"
+
       - name: Notify success
         if: needs.smoke-test.result == 'success'
         uses: slackapi/slack-github-action@v1
         with:
           payload: |
             {
-              "text": "✅ *Deployed ${{ github.ref_name }}* — smoke test passed.\nCommit: `${{ github.sha }}`\nRelease: ${{ github.event.release.html_url }}"
+              "text": "✅ *CD OK — ${{ github.ref_name }}* (env: ${{ steps.notify_meta.outputs.deploy_env }}) — smoke test passed.\nCommit: `${{ github.sha }}`\n${{ steps.notify_meta.outputs.release_line }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -160,7 +216,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ *Deploy FAILED — ${{ github.ref_name }}*.\nCommit: `${{ github.sha }}`\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "text": "❌ *CD FAILED — ${{ github.ref_name }}* (env: ${{ steps.notify_meta.outputs.deploy_env }}).\nCommit: `${{ github.sha }}`\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
