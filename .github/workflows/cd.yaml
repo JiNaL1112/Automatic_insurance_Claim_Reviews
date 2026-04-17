@@ -148,6 +148,12 @@ jobs:
           IMAGE_TAG: sha-${{ github.sha }}
         run: docker compose up -d --no-build
 
+      - name: Debug compose status (always)
+        if: always()
+        run: |
+          echo "--- docker compose ps ---"
+          docker compose ps
+
       - name: Wait for Flask /health (up to 120s)
         run: |
           echo "Waiting for Flask /health..."
@@ -161,6 +167,12 @@ jobs:
             sleep 5
           done
           echo "Smoke test FAILED — Flask never returned 200 after 120s."
+          echo "--- docker compose logs (bentoml) ---"
+          docker compose logs bentoml || true
+          echo "--- docker compose logs (mlflow) ---"
+          docker compose logs mlflow || true
+          echo "--- docker compose logs (flask) ---"
+          docker compose logs flask || true
           echo "--- docker compose logs ---"
           docker compose logs
           exit 1
