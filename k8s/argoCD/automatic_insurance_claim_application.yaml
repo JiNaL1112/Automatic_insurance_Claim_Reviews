@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews.git
+    targetRevision: main
+    path: k8s/manifests       # syncs namespace.yaml, mlflow.yaml, bentoml.yaml, flask.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fraud-detection
+
+  syncPolicy:
+    automated:
+      prune: true       # Remove resources deleted from Git
+      selfHeal: true    # Revert any manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true    # Creates fraud-detection namespace if it doesn't exist
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m         # Accounts for BentoML's long cold-start training window

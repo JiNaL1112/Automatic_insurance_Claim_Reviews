@@ -4,6 +4,7 @@ metadata:
   name: bentoml-models
   namespace: fraud-detection
 spec:
+  storageClassName: local-path
   accessModes: [ReadWriteOnce]
   storageClassName: local-path        # ✅ Explicit — never rely on a default StorageClass
   resources:

@@ -4,11 +4,12 @@ metadata:
   name: mlflow-data
   namespace: fraud-detection
 spec:
+  storageClassName: local-path
   accessModes: [ReadWriteOnce]
   storageClassName: local-path        # ✅ Explicit — never rely on a default StorageClass
   resources:
     requests:
-      storage: 5Gi
+      storage: 2Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -73,3 +74,4 @@ spec:
       port: 5000
       targetPort: 5000
       protocol: TCP
+
