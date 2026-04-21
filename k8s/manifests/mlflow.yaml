@@ -5,6 +5,7 @@ metadata:
   namespace: fraud-detection
 spec:
   accessModes: [ReadWriteOnce]
+  storageClassName: local-path        # ✅ Explicit — never rely on a default StorageClass
   resources:
     requests:
       storage: 5Gi
@@ -14,6 +15,9 @@ kind: Deployment
 metadata:
   name: mlflow
   namespace: fraud-detection
+  labels:
+    app: mlflow
+    version: "1.0"
 spec:
   replicas: 1
   selector:
@@ -23,21 +27,77 @@ spec:
     metadata:
       labels:
         app: mlflow
+        version: "1.0"
     spec:
+      # ✅ Ensures pod is evicted gracefully before node drain
+      terminationGracePeriodSeconds: 30
+
+      # ✅ Init container waits until the PVC mount is writable before the
+      #    main container starts — prevents MLflow from crashing on a cold start
+      #    when local-path hasn't finished provisioning the directory yet.
+      initContainers:
+        - name: init-mlruns-dir
+          image: busybox:1.36
+          command: ["sh", "-c", "mkdir -p /mlruns && chmod 777 /mlruns"]
+          volumeMounts:
+            - name: mlflow-data
+              mountPath: /mlruns
+
       containers:
         - name: mlflow
           image: jpatel6625/fraud-detection-mlflow:latest
+          # ✅ Never use latest in production; pin to a digest or semver tag.
+          #    Kept as-is here to match your existing workflow.
+          imagePullPolicy: Always
           ports:
-            - containerPort: 5000
-          volumeMounts:
-            - name: mlflow-data
-              mountPath: /app/mlruns
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+
+          # ✅ Resource guardrails — prevents MLflow from starving other pods
+          #    on your single-node kubeadm cluster
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          # ✅ Startup probe gives MLflow up to 60s to become ready on a cold
+          #    start (SQLite init + server startup) without counting against the
+          #    liveness probe's failure threshold
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            failureThreshold: 12      # 12 × 5s = 60s max startup window
+            periodSeconds: 5
+
+          # ✅ Liveness probe restarts the container if MLflow hangs
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 0    # startupProbe handles the wait
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # ✅ Readiness probe stops traffic until MLflow can serve requests
           readinessProbe:
             httpGet:
               path: /health
               port: 5000
-            initialDelaySeconds: 20
+            initialDelaySeconds: 0
             periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          volumeMounts:
+            - name: mlflow-data
+              mountPath: /app/mlruns
+
       volumes:
         - name: mlflow-data
           persistentVolumeClaim:
@@ -48,10 +108,16 @@ kind: Service
 metadata:
   name: mlflow
   namespace: fraud-detection
+  labels:
+    app: mlflow
 spec:
-  type: NodePort
+  type: ClusterIP            # ✅ Changed from NodePort — BentoML accesses MLflow
+                             #    only internally; no need to expose it on the node.
+                             #    Use kubectl port-forward for local UI access.
   selector:
     app: mlflow
   ports:
-    - port: 5000
+    - name: http
+      port: 5000
       targetPort: 5000
+      protocol: TCP
