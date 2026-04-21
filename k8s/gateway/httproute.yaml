@@ -5,7 +5,7 @@ metadata:
   namespace: fraud-detection
 spec:
   parentRefs:
-    - name: fraud-detection-gateway
+    - name:  cluster-gateway
       namespace: gateway-system
   hostnames:
     - "fraud-detection.local"
