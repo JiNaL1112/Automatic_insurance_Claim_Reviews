@@ -70,12 +70,8 @@ spec:
   selector:
     app: mlflow
   ports:
-<<<<<<< HEAD
-    - port: 5000
-      targetPort: 5000
-=======
     - name: http
       port: 5000
       targetPort: 5000
       protocol: TCP
->>>>>>> main
+
