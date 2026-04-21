@@ -49,6 +49,7 @@ metadata:
   name: mlflow
   namespace: fraud-detection
 spec:
+  type: NodePort
   selector:
     app: mlflow
   ports:
