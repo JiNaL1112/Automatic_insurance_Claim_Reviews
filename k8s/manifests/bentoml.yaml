@@ -4,12 +4,12 @@ metadata:
   name: bentoml-models
   namespace: fraud-detection
 spec:
-  storageClassName: local-path
+  storageClassName: local-path        # ✅ Single declaration — duplicate removed
   accessModes: [ReadWriteOnce]
-  storageClassName: local-path        # ✅ Explicit — never rely on a default StorageClass
   resources:
     requests:
       storage: 2Gi
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -44,6 +44,39 @@ spec:
           env:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow:5000
+
+          # ✅ FIX 2: startupProbe — BentoML can take several minutes on a cold
+          #    start (data generation + training + registration). This gives it
+          #    up to 5 minutes (60 × 5s) before readiness/liveness kick in.
+          #    Uses the /healthz endpoint defined in service.py.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            failureThreshold: 60      # 60 × 5s = 300s (5 min) — matches entrypoint.sh worst case
+            periodSeconds: 5
+
+          # ✅ FIX 2: readinessProbe — pod only receives traffic once BentoML
+          #    reports healthy (model loaded and ready to serve).
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+
+          # ✅ FIX 2: livenessProbe — restarts pod if BentoML hangs post-startup.
+          #    Uses a longer period since inference can be slow under load.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+
           resources:
             requests:
               cpu: "200m"
@@ -51,13 +84,16 @@ spec:
             limits:
               cpu: "1000m"
               memory: "1Gi"
+
           volumeMounts:
             - name: bentoml-models
               mountPath: /root/bentoml/models
+
       volumes:
         - name: bentoml-models
           persistentVolumeClaim:
             claimName: bentoml-models
+
 ---
 apiVersion: v1
 kind: Service
@@ -67,7 +103,7 @@ metadata:
   labels:
     app: bentoml
 spec:
-  type: ClusterIP 
+  type: ClusterIP
   selector:
     app: bentoml
   ports:

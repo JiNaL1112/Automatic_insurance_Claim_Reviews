@@ -17,6 +17,9 @@ spec:
         app: flask
         version: "1.0"
     spec:
+      # ✅ FIX 3: imagePullSecrets added — flask uses a private Docker Hub image
+      #    (jpatel6625/fraud-detection-app) so the same secret used by BentoML
+      #    is required here too. Without this, pods fail with ImagePullBackOff.
       imagePullSecrets:
         - name: dockerhub-creds
       containers:
@@ -30,6 +33,38 @@ spec:
           env:
             - name: APP_BENTOML_URL
               value: http://bentoml:3000/predict
+
+          # ✅ FIX 2: startupProbe — Flask starts quickly but depends on the
+          #    BentoML service being available. Allow up to 30s startup window.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 5005
+            failureThreshold: 6       # 6 × 5s = 30s max startup window
+            periodSeconds: 5
+
+          # ✅ FIX 2: readinessProbe — with 2 replicas, each pod must pass this
+          #    before receiving traffic. Prevents one bad pod from serving errors.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5005
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+
+          # ✅ FIX 2: livenessProbe — restarts a pod that becomes unresponsive
+          #    (e.g. deadlock, OOM). Flask's /health is a lightweight dict return
+          #    so this has negligible overhead.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5005
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
           resources:
             requests:
               cpu: "100m"

@@ -4,12 +4,12 @@ metadata:
   name: mlflow-data
   namespace: fraud-detection
 spec:
-  storageClassName: local-path
+  storageClassName: local-path        # ✅ Single declaration — duplicate removed
   accessModes: [ReadWriteOnce]
-  storageClassName: local-path        # ✅ Explicit — never rely on a default StorageClass
   resources:
     requests:
       storage: 2Gi
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -38,6 +38,37 @@ spec:
             - name: http
               containerPort: 5000
               protocol: TCP
+
+          # ✅ FIX 2: startupProbe — gives MLflow up to 60s to initialise before
+          #    readiness/liveness take over. Prevents premature traffic.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            failureThreshold: 12      # 12 × 5s = 60s max startup window
+            periodSeconds: 5
+
+          # ✅ FIX 2: readinessProbe — pod only receives traffic once MLflow
+          #    responds 200 on /health.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+
+          # ✅ FIX 2: livenessProbe — restarts the pod if MLflow becomes
+          #    unresponsive after a successful startup.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
           resources:
             requests:
               cpu: "100m"
@@ -45,7 +76,6 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
-
 
           volumeMounts:
             - name: mlflow-data
@@ -55,6 +85,7 @@ spec:
         - name: mlflow-data
           persistentVolumeClaim:
             claimName: mlflow-data
+
 ---
 apiVersion: v1
 kind: Service
@@ -64,9 +95,7 @@ metadata:
   labels:
     app: mlflow
 spec:
-  type: ClusterIP            # ✅ Changed from NodePort — BentoML accesses MLflow
-                             #    only internally; no need to expose it on the node.
-                             #    Use kubectl port-forward for local UI access.
+  type: ClusterIP            # Internal only — use kubectl port-forward for local UI access
   selector:
     app: mlflow
   ports:
@@ -74,4 +103,3 @@ spec:
       port: 5000
       targetPort: 5000
       protocol: TCP
-
