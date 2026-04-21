@@ -36,10 +36,10 @@ metadata:
   name: flask
   namespace: fraud-detection
 spec:
+  type: NodePort
   selector:
     app: flask
   ports:
     - port: 80
       targetPort: 5005
-      type: NodePort
 
