@@ -47,7 +47,7 @@ metadata:
   labels:
     app: flask
 spec:
-  type: NodePort 
+  type: ClusterIP
   selector:
     app: flask
   ports:
@@ -55,4 +55,3 @@ spec:
       port: 80
       targetPort: 5005
       protocol: TCP
-      # nodePort: 30080      # Uncomment to pin the host port (30000–32767)

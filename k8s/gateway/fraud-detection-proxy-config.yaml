@@ -1,0 +1,21 @@
+apiVersion: gateway.nginx.org/v1alpha2
+kind: NginxProxy
+metadata:
+  name: fraud-detection-proxy-config
+  namespace: fraud-detection
+spec:
+  ipFamily: dual
+  kubernetes:
+    deployment:
+      container:
+        image:
+          pullPolicy: IfNotPresent
+          repository: ghcr.io/nginx/nginx-gateway-fabric/nginx
+          tag: 2.4.2
+      replicas: 1
+    service:
+      externalTrafficPolicy: Cluster
+      nodePorts:
+      - listenerPort: 80
+        port: 32100
+      type: NodePort

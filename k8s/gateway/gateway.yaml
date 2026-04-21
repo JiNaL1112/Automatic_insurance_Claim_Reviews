@@ -4,7 +4,12 @@ metadata:
   name: fraud-detection-gateway
   namespace: fraud-detection
 spec:
-  gatewayClassName: nginx          # change to your installed GatewayClass e.g. istio, cilium, traefik
+  gatewayClassName: nginx
+  infrastructure:
+    parametersRef:
+      group: gateway.nginx.org
+      kind: NginxProxy
+      name: fraud-detection-proxy-config
   listeners:
     - name: http
       protocol: HTTP
