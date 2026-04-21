@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bentoml-models
+  namespace: fraud-detection
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bentoml
+  namespace: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bentoml
+  template:
+    metadata:
+      labels:
+        app: bentoml
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-creds
+      containers:
+        - name: bentoml
+          image: jpatel6625/fraud-detection-ml:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5000
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 20
+          volumeMounts:
+            - name: bentoml-models
+              mountPath: /root/bentoml/models
+      volumes:
+        - name: bentoml-models
+          persistentVolumeClaim:
+            claimName: bentoml-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bentoml
+  namespace: fraud-detection
+spec:
+  selector:
+    app: bentoml
+  ports:
+    - port: 3000
+      targetPort: 3000
