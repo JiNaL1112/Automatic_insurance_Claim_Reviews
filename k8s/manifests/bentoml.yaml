@@ -30,14 +30,8 @@ spec:
         version: "1.0"
     spec:
       terminationGracePeriodSeconds: 30
-
       imagePullSecrets:
         - name: dockerhub-creds
-
-      # ✅ Init container confirms MLflow is reachable before BentoML starts
-      #    training. On a kubeadm cluster with local-path, MLflow can take
-      #    30-60s to provision its PVC and become ready. Without this, BentoML's
-      #    entrypoint.sh will fail trying to reach http://mlflow:5000 too early.
       initContainers:
         - name: wait-for-mlflow
           image: busybox:1.36
@@ -51,14 +45,12 @@ spec:
                 sleep 5
               done
               echo "MLflow is ready."
-
         - name: init-bentoml-dir
           image: busybox:1.36
           command: ["sh", "-c", "mkdir -p /root/bentoml/models && chmod 777 /root/bentoml/models"]
           volumeMounts:
             - name: bentoml-models
               mountPath: /root/bentoml/models
-
       containers:
         - name: bentoml
           image: jpatel6625/fraud-detection-ml:latest
@@ -71,9 +63,6 @@ spec:
           env:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow:5000
-
-          # ✅ Resource guardrails — Isolation Forest training is CPU-heavy;
-          #    cap it so it doesn't starve Flask on a single-node cluster
           resources:
             requests:
               cpu: "200m"
@@ -81,35 +70,9 @@ spec:
             limits:
               cpu: "1000m"
               memory: "1Gi"
-
-          # ✅ Startup probe: BentoML may run a full train pipeline on first boot
-          #    (entrypoint.sh). Allow up to 5 minutes (60 × 5s) before giving up.
-          startupProbe:
-            tcpSocket:
-              port: 3000
-            failureThreshold: 60      # 60 × 5s = 300s max cold-start window
-            periodSeconds: 5
-
-          livenessProbe:
-            tcpSocket:
-              port: 3000
-            periodSeconds: 15
-            failureThreshold: 3
-            timeoutSeconds: 5
-
-          # ✅ Readiness probe keeps Flask from routing traffic until BentoML
-          #    has finished loading the model and is actually serving
-          readinessProbe:
-            tcpSocket:
-              port: 3000
-            periodSeconds: 10
-            failureThreshold: 3
-            timeoutSeconds: 5
-
           volumeMounts:
             - name: bentoml-models
               mountPath: /root/bentoml/models
-
       volumes:
         - name: bentoml-models
           persistentVolumeClaim:
@@ -123,8 +86,7 @@ metadata:
   labels:
     app: bentoml
 spec:
-  type: ClusterIP            # ✅ Internal only — Flask calls BentoML by service
-                             #    name; no external exposure needed
+  type: ClusterIP 
   selector:
     app: bentoml
   ports:

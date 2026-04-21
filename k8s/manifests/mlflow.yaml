@@ -31,10 +31,6 @@ spec:
     spec:
       # ✅ Ensures pod is evicted gracefully before node drain
       terminationGracePeriodSeconds: 30
-
-      # ✅ Init container waits until the PVC mount is writable before the
-      #    main container starts — prevents MLflow from crashing on a cold start
-      #    when local-path hasn't finished provisioning the directory yet.
       initContainers:
         - name: init-mlruns-dir
           image: busybox:1.36
@@ -64,35 +60,6 @@ spec:
               cpu: "500m"
               memory: "512Mi"
 
-          # ✅ Startup probe gives MLflow up to 60s to become ready on a cold
-          #    start (SQLite init + server startup) without counting against the
-          #    liveness probe's failure threshold
-          startupProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            failureThreshold: 12      # 12 × 5s = 60s max startup window
-            periodSeconds: 5
-
-          # ✅ Liveness probe restarts the container if MLflow hangs
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 0    # startupProbe handles the wait
-            periodSeconds: 15
-            failureThreshold: 3
-            timeoutSeconds: 5
-
-          # ✅ Readiness probe stops traffic until MLflow can serve requests
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 0
-            periodSeconds: 10
-            failureThreshold: 3
-            timeoutSeconds: 5
 
           volumeMounts:
             - name: mlflow-data
