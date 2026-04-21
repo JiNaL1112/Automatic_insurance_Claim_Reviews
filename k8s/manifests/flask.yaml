@@ -17,30 +17,8 @@ spec:
         app: flask
         version: "1.0"
     spec:
-      terminationGracePeriodSeconds: 30
       imagePullSecrets:
         - name: dockerhub-creds
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: flask
-      initContainers:
-        - name: wait-for-bentoml
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for BentoML to be ready..."
-              until nc -z bentoml 3000; do
-                echo "BentoML not ready — retrying in 5s"
-                sleep 5
-              done
-              echo "BentoML is ready."
-
       containers:
         - name: flask
           image: jpatel6625/fraud-detection-app:latest

@@ -32,25 +32,6 @@ spec:
       terminationGracePeriodSeconds: 30
       imagePullSecrets:
         - name: dockerhub-creds
-      initContainers:
-        - name: wait-for-mlflow
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for MLflow to be ready..."
-              until wget -qO- http://mlflow:5000/health > /dev/null 2>&1; do
-                echo "MLflow not ready yet — retrying in 5s"
-                sleep 5
-              done
-              echo "MLflow is ready."
-        - name: init-bentoml-dir
-          image: busybox:1.36
-          command: ["sh", "-c", "mkdir -p /root/bentoml/models && chmod 777 /root/bentoml/models"]
-          volumeMounts:
-            - name: bentoml-models
-              mountPath: /root/bentoml/models
       containers:
         - name: bentoml
           image: jpatel6625/fraud-detection-ml:latest
@@ -59,7 +40,6 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
-
           env:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow:5000
