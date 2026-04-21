@@ -4,7 +4,7 @@ metadata:
   name: flask
   namespace: fraud-detection
 spec:
-  replicas: 2                        # scale the user-facing app
+  replicas: 2
   selector:
     matchLabels:
       app: flask
@@ -21,7 +21,7 @@ spec:
           ports:
             - containerPort: 5005
           env:
-            - name: BENTOML_URL
+            - name: APP_BENTOML_URL
               value: http://bentoml:3000/predict
           readinessProbe:
             httpGet:
@@ -42,23 +42,40 @@ spec:
     - port: 80
       targetPort: 5005
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# Gateway API — replaces the Ingress resource
+# Requires gateway.networking.k8s.io CRDs to be installed:
+#   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/latest/download/standard-install.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: flask-ingress
+  name: fraud-detection-gateway
   namespace: fraud-detection
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  ingressClassName: nginx
+  gatewayClassName: nginx          # change to your installed GatewayClass e.g. istio, cilium, traefik
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: flask-route
+  namespace: fraud-detection
+spec:
+  parentRefs:
+    - name: fraud-detection-gateway
+      namespace: fraud-detection
+  hostnames:
+    - "fraud-detection.yourdomain.com"   # replace with your domain, or remove for any host
   rules:
-    - host: fraud-detection.yourdomain.com   # replace with your domain
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: flask
-                port:
-                  number: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: flask
+          port: 80
