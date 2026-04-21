@@ -1,0 +1,258 @@
+# ==============================================================================
+# ArgoCD — App of Apps
+# Root application that manages all child apps for the fraud-detection platform.
+# Apply once with:
+#   kubectl apply -f k8s/argoCD/automatic_insurance_claim_application.yaml
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection-root
+  namespace: argocd
+  # Cascade delete: removing this app also removes all child apps + their resources
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+    managed-by: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews   # ← update this
+    targetRevision: main
+    # Points at the directory that contains the child Application manifests below
+    path: k8s/argoCD/apps
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true       # Remove resources deleted from Git
+      selfHeal: true    # Revert manual kubectl edits automatically
+    syncOptions:
+      - CreateNamespace=true
+
+---
+# ==============================================================================
+# Child app — Namespace
+# Must sync first so every other resource has a namespace to land in.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection-namespace
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+    component: namespace
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews   # ← update this
+    targetRevision: main
+    path: k8s/manifests
+    directory:
+      include: "namespace.yaml"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd          # The namespace manifest creates fraud-detection
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+
+---
+# ==============================================================================
+# Child app — MLflow
+# Experiment tracking server (ClusterIP, access via kubectl port-forward)
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection-mlflow
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+    component: mlflow
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews   # ← update this
+    targetRevision: main
+    path: k8s/manifests
+    directory:
+      include: "mlflow.yaml"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fraud-detection
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m
+
+  # Sync mlflow only after the namespace app is healthy
+  info:
+    - name: depends-on
+      value: fraud-detection-namespace
+
+---
+# ==============================================================================
+# Child app — BentoML
+# Model serving service — trains on first boot if no model is cached in PVC.
+# Has a long start_period (300 s) reflected in the health check below.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection-bentoml
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+    component: bentoml
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews   # ← update this
+    targetRevision: main
+    path: k8s/manifests
+    directory:
+      include: "bentoml.yaml"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fraud-detection
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+
+  info:
+    - name: depends-on
+      value: fraud-detection-mlflow
+
+---
+# ==============================================================================
+# Child app — Flask
+# Web UI — depends on BentoML being healthy before it starts.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection-flask
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+    component: flask
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews   # ← update this
+    targetRevision: main
+    path: k8s/manifests
+    directory:
+      include: "flask.yaml"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fraud-detection
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m
+
+  info:
+    - name: depends-on
+      value: fraud-detection-bentoml
+
+---
+# ==============================================================================
+# Child app — Gateway / HTTPRoute
+# Nginx gateway + HTTPRoute for external ingress to the Flask service.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection-gateway
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+    component: gateway
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews   # ← update this
+    targetRevision: main
+    path: k8s/gateway
+    directory:
+      include: "*.yaml"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fraud-detection
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m
+
+  info:
+    - name: depends-on
+      value: fraud-detection-flask
