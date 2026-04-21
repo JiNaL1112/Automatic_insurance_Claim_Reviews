@@ -72,7 +72,9 @@ def run_pipeline():
             "train_anomaly_pct": train_anomaly_pct,
             "test_anomaly_pct":  test_anomaly_pct,
         })
-        mlflow.sklearn.log_model(model, "model")
+
+        # mlflow.sklearn.log_model(model, "model")
+        mlflow.sklearn.log_model(model, name="model")
 
         log.info("Train anomaly %: %.2f", train_anomaly_pct)
         log.info("Test  anomaly %: %.2f", test_anomaly_pct)

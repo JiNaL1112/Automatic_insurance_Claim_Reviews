@@ -4,7 +4,7 @@ metadata:
   name: mlflow-data
   namespace: fraud-detection
 spec:
-  storageClassName: local-path        # ✅ Single declaration — duplicate removed
+  storageClassName: local-path
   accessModes: [ReadWriteOnce]
   resources:
     requests:
@@ -30,6 +30,13 @@ spec:
         app: mlflow
         version: "1.0"
     spec:
+      initContainers:
+        - name: db-cleanup
+          image: busybox
+          command: ["sh", "-c", "rm -f /app/mlruns/mlflow.db && echo 'Cleaned mlflow.db'"]
+          volumeMounts:
+            - name: mlflow-data
+              mountPath: /app/mlruns
       containers:
         - name: mlflow
           image: jpatel6625/fraud-detection-mlflow:latest
@@ -38,18 +45,12 @@ spec:
             - name: http
               containerPort: 5000
               protocol: TCP
-
-          # ✅ FIX 2: startupProbe — gives MLflow up to 60s to initialise before
-          #    readiness/liveness take over. Prevents premature traffic.
           startupProbe:
             httpGet:
               path: /health
               port: 5000
-            failureThreshold: 12      # 12 × 5s = 60s max startup window
+            failureThreshold: 12
             periodSeconds: 5
-
-          # ✅ FIX 2: readinessProbe — pod only receives traffic once MLflow
-          #    responds 200 on /health.
           readinessProbe:
             httpGet:
               path: /health
@@ -58,9 +59,6 @@ spec:
             periodSeconds: 10
             failureThreshold: 3
             successThreshold: 1
-
-          # ✅ FIX 2: livenessProbe — restarts the pod if MLflow becomes
-          #    unresponsive after a successful startup.
           livenessProbe:
             httpGet:
               path: /health
@@ -68,7 +66,6 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3
-
           resources:
             requests:
               cpu: "100m"
@@ -76,11 +73,9 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
-
           volumeMounts:
             - name: mlflow-data
               mountPath: /app/mlruns
-
       volumes:
         - name: mlflow-data
           persistentVolumeClaim:
@@ -95,7 +90,7 @@ metadata:
   labels:
     app: mlflow
 spec:
-  type: ClusterIP            # Internal only — use kubectl port-forward for local UI access
+  type: ClusterIP
   selector:
     app: mlflow
   ports:
