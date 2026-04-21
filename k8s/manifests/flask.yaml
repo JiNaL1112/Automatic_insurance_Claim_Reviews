@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: flask
   namespace: fraud-detection
+  labels:
+    app: flask
+    version: "1.0"
 spec:
   replicas: 2
   selector:
@@ -12,34 +15,43 @@ spec:
     metadata:
       labels:
         app: flask
+        version: "1.0"
     spec:
       imagePullSecrets:
         - name: dockerhub-creds
       containers:
         - name: flask
           image: jpatel6625/fraud-detection-app:latest
+          imagePullPolicy: Always
           ports:
-            - containerPort: 5005
+            - name: http
+              containerPort: 5005
+              protocol: TCP
           env:
             - name: APP_BENTOML_URL
               value: http://bentoml:3000/predict
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 5005
-            initialDelaySeconds: 10
-            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: flask
   namespace: fraud-detection
+  labels:
+    app: flask
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: flask
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 5005
-
+      protocol: TCP

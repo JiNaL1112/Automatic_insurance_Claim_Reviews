@@ -6,6 +6,7 @@ metadata:
 spec:
   storageClassName: local-path
   accessModes: [ReadWriteOnce]
+  storageClassName: local-path        # ✅ Explicit — never rely on a default StorageClass
   resources:
     requests:
       storage: 2Gi
@@ -15,6 +16,9 @@ kind: Deployment
 metadata:
   name: mlflow
   namespace: fraud-detection
+  labels:
+    app: mlflow
+    version: "1.0"
 spec:
   replicas: 1
   selector:
@@ -24,21 +28,29 @@ spec:
     metadata:
       labels:
         app: mlflow
+        version: "1.0"
     spec:
       containers:
         - name: mlflow
           image: jpatel6625/fraud-detection-mlflow:latest
+          imagePullPolicy: Always
           ports:
-            - containerPort: 5000
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+
           volumeMounts:
             - name: mlflow-data
               mountPath: /app/mlruns
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 20
-            periodSeconds: 10
+
       volumes:
         - name: mlflow-data
           persistentVolumeClaim:
@@ -49,10 +61,21 @@ kind: Service
 metadata:
   name: mlflow
   namespace: fraud-detection
+  labels:
+    app: mlflow
 spec:
-  type: NodePort
+  type: ClusterIP            # ✅ Changed from NodePort — BentoML accesses MLflow
+                             #    only internally; no need to expose it on the node.
+                             #    Use kubectl port-forward for local UI access.
   selector:
     app: mlflow
   ports:
+<<<<<<< HEAD
     - port: 5000
       targetPort: 5000
+=======
+    - name: http
+      port: 5000
+      targetPort: 5000
+      protocol: TCP
+>>>>>>> main

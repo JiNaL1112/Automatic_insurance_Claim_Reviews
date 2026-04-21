@@ -6,6 +6,7 @@ metadata:
 spec:
   storageClassName: local-path
   accessModes: [ReadWriteOnce]
+  storageClassName: local-path        # ✅ Explicit — never rely on a default StorageClass
   resources:
     requests:
       storage: 2Gi
@@ -15,6 +16,9 @@ kind: Deployment
 metadata:
   name: bentoml
   namespace: fraud-detection
+  labels:
+    app: bentoml
+    version: "1.0"
 spec:
   replicas: 1
   selector:
@@ -24,23 +28,29 @@ spec:
     metadata:
       labels:
         app: bentoml
+        version: "1.0"
     spec:
+      terminationGracePeriodSeconds: 30
       imagePullSecrets:
         - name: dockerhub-creds
       containers:
         - name: bentoml
           image: jpatel6625/fraud-detection-ml:latest
+          imagePullPolicy: Always
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
+              protocol: TCP
           env:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow:5000
-          readinessProbe:
-            tcpSocket:
-              port: 3000
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            failureThreshold: 20
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
           volumeMounts:
             - name: bentoml-models
               mountPath: /root/bentoml/models
@@ -54,11 +64,18 @@ kind: Service
 metadata:
   name: bentoml
   namespace: fraud-detection
+  labels:
+    app: bentoml
 spec:
-  type: NodePort
+  type: ClusterIP 
   selector:
     app: bentoml
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
       targetPort: 3000
+<<<<<<< HEAD
       
+=======
+      protocol: TCP
+>>>>>>> main
