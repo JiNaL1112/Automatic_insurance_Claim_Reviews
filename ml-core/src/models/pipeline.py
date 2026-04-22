@@ -13,7 +13,7 @@ import os
 
 logging.basicConfig(
     stream=sys.stdout,
-    format='{"level":"%(levelname)s","msg":"%(message)s","time":"%(asctime)s"}',
+    format='%(levelname)s - %(message)s',
     level=logging.INFO,
 )
 
@@ -73,8 +73,8 @@ def run_pipeline():
             "test_anomaly_pct":  test_anomaly_pct,
         })
 
-        # mlflow.sklearn.log_model(model, "model")
-        mlflow.sklearn.log_model(model, name="model")
+       
+        mlflow.sklearn.log_model(model, artifact_path="model")
 
         log.info("Train anomaly %: %.2f", train_anomaly_pct)
         log.info("Test  anomaly %: %.2f", test_anomaly_pct)

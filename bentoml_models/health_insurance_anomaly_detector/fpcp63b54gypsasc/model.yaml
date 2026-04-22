@@ -1,0 +1,17 @@
+name: health_insurance_anomaly_detector
+version: fpcp63b54gypsasc
+module: bentoml.sklearn
+labels: {}
+options: {}
+metadata: {}
+context:
+  framework_name: sklearn
+  framework_versions:
+    scikit-learn: 1.8.0
+  bentoml_version: 1.4.38
+  python_version: 3.11.15
+signatures:
+  predict:
+    batchable: false
+api_version: v1
+creation_time: '2026-04-22T00:21:13.646632+00:00'
