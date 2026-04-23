@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────
 
 global:
-  imageTag: latest   # dev always pulls :latest
+  imageTag: "sha-d4e9f094165c700550d33708c7f1de083da7acc8"
 
 # Scale down to save resources in dev
 flask:
