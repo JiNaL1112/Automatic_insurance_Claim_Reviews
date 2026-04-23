@@ -1,0 +1,76 @@
+{{- if .Values.mlflow.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: mlflow
+spec:
+  storageClassName: {{ .Values.global.storageClass }}
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.mlflow.persistence.size }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: mlflow
+spec:
+  replicas: {{ .Values.mlflow.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "fraud-detection.selectorLabels" (dict "component" "mlflow") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fraud-detection.selectorLabels" (dict "component" "mlflow") | nindent 8 }}
+    spec:
+      containers:
+        - name: mlflow
+          image: {{ include "fraud-detection.image" (dict "root" . "repo" .Values.mlflow.image.repository "pullPolicy" .Values.mlflow.image.pullPolicy) }}
+          imagePullPolicy: {{ .Values.mlflow.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mlflow.port }}
+              protocol: TCP
+
+          
+          resources:
+            {{- toYaml .Values.mlflow.resources | nindent 12 }}
+
+          volumeMounts:
+            - name: mlflow-data
+              mountPath: /app/mlruns
+
+      volumes:
+        - name: mlflow-data
+          persistentVolumeClaim:
+            claimName: mlflow-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: mlflow
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "fraud-detection.selectorLabels" (dict "component" "mlflow") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.mlflow.port }}
+      targetPort: {{ .Values.mlflow.port }}
+      protocol: TCP
+{{- end }}

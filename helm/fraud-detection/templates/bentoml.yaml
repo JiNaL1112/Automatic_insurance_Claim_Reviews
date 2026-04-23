@@ -1,0 +1,105 @@
+{{- if .Values.bentoml.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bentoml-models
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: bentoml
+spec:
+  storageClassName: {{ .Values.global.storageClass }}
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.bentoml.persistence.size }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bentoml
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: bentoml
+spec:
+  replicas: {{ .Values.bentoml.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "fraud-detection.selectorLabels" (dict "component" "bentoml") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fraud-detection.selectorLabels" (dict "component" "bentoml") | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecret }}
+      containers:
+        - name: bentoml
+          image: {{ include "fraud-detection.image" (dict "root" . "repo" .Values.bentoml.image.repository "pullPolicy" .Values.bentoml.image.pullPolicy) }}
+          imagePullPolicy: {{ .Values.bentoml.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.bentoml.port }}
+              protocol: TCP
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:{{ .Values.mlflow.port }}
+
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.bentoml.port }}
+            failureThreshold: {{ .Values.bentoml.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.bentoml.probes.startup.periodSeconds }}
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.bentoml.port }}
+            initialDelaySeconds: {{ .Values.bentoml.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.bentoml.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.bentoml.probes.readiness.failureThreshold }}
+            successThreshold: 1
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.bentoml.port }}
+            initialDelaySeconds: {{ .Values.bentoml.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.bentoml.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.bentoml.probes.liveness.failureThreshold }}
+
+          resources:
+            {{- toYaml .Values.bentoml.resources | nindent 12 }}
+
+          volumeMounts:
+            - name: bentoml-models
+              mountPath: /root/bentoml/models
+
+      volumes:
+        - name: bentoml-models
+          persistentVolumeClaim:
+            claimName: bentoml-models
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bentoml
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: bentoml
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "fraud-detection.selectorLabels" (dict "component" "bentoml") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.bentoml.port }}
+      targetPort: {{ .Values.bentoml.port }}
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,79 @@
+{{- if .Values.flask.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: flask
+spec:
+  replicas: {{ .Values.flask.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "fraud-detection.selectorLabels" (dict "component" "flask") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fraud-detection.selectorLabels" (dict "component" "flask") | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecret }}
+      containers:
+        - name: flask
+          image: {{ include "fraud-detection.image" (dict "root" . "repo" .Values.flask.image.repository "pullPolicy" .Values.flask.image.pullPolicy) }}
+          imagePullPolicy: {{ .Values.flask.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.flask.port }}
+              protocol: TCP
+          env:
+            - name: APP_BENTOML_URL
+              value: http://bentoml:{{ .Values.bentoml.port }}/predict
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.flask.port }}
+            failureThreshold: {{ .Values.flask.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.flask.probes.startup.periodSeconds }}
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.flask.port }}
+            initialDelaySeconds: {{ .Values.flask.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.flask.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.flask.probes.readiness.failureThreshold }}
+            successThreshold: 1
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.flask.port }}
+            initialDelaySeconds: {{ .Values.flask.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.flask.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.flask.probes.liveness.failureThreshold }}
+
+          resources:
+            {{- toYaml .Values.flask.resources | nindent 12 }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "fraud-detection.labels" . | nindent 4 }}
+    app: flask
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "fraud-detection.selectorLabels" (dict "component" "flask") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.flask.servicePort }}
+      targetPort: {{ .Values.flask.port }}
+      protocol: TCP
+{{- end }}
