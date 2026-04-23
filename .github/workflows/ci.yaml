@@ -131,6 +131,5 @@ jobs:
     runs-on: ubuntu-latest
     needs: [version, test]    # only build if tests pass
     # Only build on pushes to main/develop — not on every feature branch PR
-    if: |
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deve
+    # FIXED — single line
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
