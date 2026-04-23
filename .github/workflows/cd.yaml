@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Where to run CD (non-prod). Release events always mean prod."
+        description: "Target environment"
         type: choice
         required: true
         default: dev
@@ -14,7 +14,7 @@ on:
           - dev
           - staging
       push_latest:
-        description: "Also push the :latest tag"
+        description: "Also push :latest tag"
         type: boolean
         required: false
         default: false
@@ -27,9 +27,63 @@ env:
 
 jobs:
 
+  # ── NEW: compute version once, share across all jobs ──────────────────────
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      sha_tag: ${{ steps.ver.outputs.sha_tag }}
+      semver_tag: ${{ steps.ver.outputs.semver_tag }}
+      all_tags: ${{ steps.ver.outputs.all_tags }}
+      is_release: ${{ steps.ver.outputs.is_release }}
+
+    steps:
+      - name: Compute tags
+        id: ver
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # Always create a short SHA tag — primary tag for K8s
+          SHA_SHORT="${SHA::8}"
+          SHA_TAG="sha-${SHA_SHORT}"
+
+          # Semver tag only on releases (e.g. v1.2.3)
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            SEMVER_TAG="${REF_NAME}"   # GitHub release tag e.g. v1.2.3
+            IS_RELEASE="true"
+          else
+            SEMVER_TAG=""
+            IS_RELEASE="false"
+          fi
+
+          # Build comma-separated tag list for docker metadata
+          # Format: sha-abc12345,v1.2.3  (semver only on release)
+          TAGS="${SHA_TAG}"
+          if [[ -n "${SEMVER_TAG}" ]]; then
+            TAGS="${TAGS},${SEMVER_TAG}"
+          fi
+
+          echo "sha_tag=${SHA_TAG}"         >> "${GITHUB_OUTPUT}"
+          echo "semver_tag=${SEMVER_TAG}"   >> "${GITHUB_OUTPUT}"
+          echo "all_tags=${TAGS}"           >> "${GITHUB_OUTPUT}"
+          echo "is_release=${IS_RELEASE}"   >> "${GITHUB_OUTPUT}"
+
+          # Print summary so it's visible in the Actions log
+          echo "### Version computed" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- SHA tag:    \`${SHA_TAG}\`"    >> "${GITHUB_STEP_SUMMARY}"
+          echo "- Semver tag: \`${SEMVER_TAG:-none}\`" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- Is release: \`${IS_RELEASE}\`" >> "${GITHUB_STEP_SUMMARY}"
+
+  # ── Build and push ─────────────────────────────────────────────────────────
   build-and-push:
     name: Build & push (${{ matrix.name }})
     runs-on: ubuntu-latest
+    needs: version                        # ← depends on version job
     permissions:
       contents: read
       id-token: write
@@ -66,29 +120,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Compute image tags
-        id: meta
-        shell: bash
-        env:
-          IMAGE: ${{ env[matrix.image_env] }}
-          REF_NAME: ${{ github.ref_name }}
-          SHA: ${{ github.sha }}
-          EVENT_NAME: ${{ github.event_name }}
-          PUSH_LATEST: ${{ inputs.push_latest }}
-        run: |
-          set -euo pipefail
-          TAGS=()
-          TAGS+=("${IMAGE}:${REF_NAME}")
-          TAGS+=("${IMAGE}:sha-${SHA}")
-          if [[ "${EVENT_NAME}" == "release" || "${PUSH_LATEST}" == "true" ]]; then
-            TAGS+=("${IMAGE}:latest")
-          fi
-          {
-            echo "tags<<EOF"
-            printf "%s\n" "${TAGS[@]}"
-            echo "EOF"
-          } >> "${GITHUB_OUTPUT}"
-
       - name: Build and push ${{ matrix.name }}
         id: build
         uses: docker/build-push-action@v5
@@ -96,13 +127,19 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          # Use tags computed by the version job
+          # e.g.  jpatel6625/fraud-detection-ml:sha-abc12345
+          #        jpatel6625/fraud-detection-ml:v1.2.3   (release only)
+          tags: |
+            ${{ env[matrix.image_env] }}:${{ needs.version.outputs.sha_tag }}
+            ${{ needs.version.outputs.semver_tag != '' && format('{0}:{1}', env[matrix.image_env], needs.version.outputs.semver_tag) || '' }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           labels: |
-            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.version=${{ needs.version.outputs.sha_tag }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -113,9 +150,24 @@ jobs:
           IMAGE: ${{ env[matrix.image_env] }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
+      # ── Print what was pushed so it's easy to find in the logs ────────────
+      - name: Summarise pushed tags
+        shell: bash
+        env:
+          IMAGE: ${{ env[matrix.image_env] }}
+          SHA_TAG: ${{ needs.version.outputs.sha_tag }}
+          SEMVER_TAG: ${{ needs.version.outputs.semver_tag }}
+        run: |
+          echo "### ${{ matrix.name }} pushed" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- \`${IMAGE}:${SHA_TAG}\`" >> "${GITHUB_STEP_SUMMARY}"
+          if [[ -n "${SEMVER_TAG}" ]]; then
+            echo "- \`${IMAGE}:${SEMVER_TAG}\`" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+  # ── Smoke test ─────────────────────────────────────────────────────────────
   smoke-test:
     name: Smoke test
-    needs: build-and-push
+    needs: [version, build-and-push]
     runs-on: ubuntu-latest
 
     steps:
@@ -128,10 +180,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Pull images via docker compose (sha tag)
+      - name: Pull images
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          IMAGE_TAG: sha-${{ github.sha }}
+          IMAGE_TAG: ${{ needs.version.outputs.sha_tag }}   # ← sha tag, not latest
         run: |
           docker compose config
           docker compose pull
@@ -139,25 +191,19 @@ jobs:
       - name: Start all services
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          IMAGE_TAG: sha-${{ github.sha }}
+          IMAGE_TAG: ${{ needs.version.outputs.sha_tag }}
         run: docker compose up -d --no-build
 
-      - name: Debug compose status (always)
+      - name: Debug compose status
         if: always()
-        run: |
-          echo "--- docker compose ps ---"
-          docker compose ps
+        run: docker compose ps
 
       - name: Wait for Flask /health (up to 120s)
         run: |
-          echo "Waiting for Flask /health..."
           for i in $(seq 1 24); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5005/health || echo "000")
             echo "Attempt $i/24: HTTP $STATUS"
-            if [ "$STATUS" = "200" ]; then
-              echo "Smoke test passed."
-              exit 0
-            fi
+            if [ "$STATUS" = "200" ]; then echo "Smoke test passed."; exit 0; fi
             sleep 5
           done
           echo "Smoke test FAILED"
@@ -168,61 +214,66 @@ jobs:
         if: always()
         run: docker compose down --volumes --remove-orphans
 
-  # ── NEW JOB: patch values-dev.yaml and commit → ArgoCD auto-syncs ──────────
+  # ── GitOps — patch values-prod.yaml ───────────────────────────────────────
   update-image-tag:
-    name: GitOps — patch values-dev.yaml
-    needs: smoke-test
+    name: GitOps — patch values-prod.yaml
+    needs: [version, smoke-test]
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # needed to push the commit back
+      contents: write
 
     steps:
-      - name: Checkout repo with write access
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITOPS_TOKEN }}
-          # Always patch main — ArgoCD watches main
           ref: main
 
-      - name: Patch imageTag in values-dev.yaml
+      - name: Patch imageTag
         shell: bash
         env:
-          SHA: ${{ github.sha }}
+          SHA_TAG: ${{ needs.version.outputs.sha_tag }}
+          SEMVER_TAG: ${{ needs.version.outputs.semver_tag }}
+          IS_RELEASE: ${{ needs.version.outputs.is_release }}
         run: |
           set -euo pipefail
-          NEW_TAG="sha-${SHA}"
-          echo "Patching global.imageTag to ${NEW_TAG}"
 
-          # Replace the imageTag line in values-dev.yaml
-          sed -i "s/^  imageTag:.*/  imageTag: \"${NEW_TAG}\"/" \
-            helm/fraud-detection/values-dev.yaml
+          # On a release use the semver tag, otherwise use the sha tag
+          # This means your ArgoCD will show v1.2.3 on releases — easy to read
+          if [[ "${IS_RELEASE}" == "true" && -n "${SEMVER_TAG}" ]]; then
+            DEPLOY_TAG="${SEMVER_TAG}"
+          else
+            DEPLOY_TAG="${SHA_TAG}"
+          fi
 
-          # Show the diff so it's visible in the Actions log
-          git diff helm/fraud-detection/values-dev.yaml
+          echo "Patching imageTag to: ${DEPLOY_TAG}"
+          sed -i "s/^  imageTag:.*/  imageTag: \"${DEPLOY_TAG}\"/" \
+            helm/fraud-detection/values-prod.yaml
+
+          git diff helm/fraud-detection/values-prod.yaml
 
       - name: Commit and push
         shell: bash
         env:
-          SHA: ${{ github.sha }}
+          SHA_TAG: ${{ needs.version.outputs.sha_tag }}
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add helm/fraud-detection/values-dev.yaml
+          git add helm/fraud-detection/values-prod.yaml
 
-          # Only commit if there is actually a change
           if git diff --cached --quiet; then
-            echo "No change to values-dev.yaml — skipping commit."
+            echo "No change — skipping commit."
           else
-            git commit -m "chore: bump imageTag to sha-${SHA} [skip ci]"
+            git commit -m "chore: deploy ${SHA_TAG} [skip ci]"
             git push origin main
           fi
-          # [skip ci] prevents this commit from re-triggering the CD workflow
 
+  # ── Notify ─────────────────────────────────────────────────────────────────
   notify:
-    name: Notify deployment
-    needs: [smoke-test, update-image-tag]
+    name: Notify
+    needs: [version, smoke-test, update-image-tag]
     runs-on: ubuntu-latest
     if: always()
     permissions:
@@ -230,38 +281,18 @@ jobs:
       issues: write
 
     steps:
-      - name: Compute notification fields
-        id: notify_meta
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_ENV: ${{ inputs.environment }}
-          REF_NAME: ${{ github.ref_name }}
-          RELEASE_URL: ${{ github.event.release.html_url }}
-        run: |
-          set -euo pipefail
-          if [[ "${EVENT_NAME}" == "release" ]]; then
-            DEPLOY_ENV="dev"
-            RELEASE_LINE="Release: ${RELEASE_URL}"
-          else
-            DEPLOY_ENV="${INPUT_ENV}"
-            RELEASE_LINE="Release: (manual run)"
-          fi
-          echo "deploy_env=${DEPLOY_ENV}" >> "${GITHUB_OUTPUT}"
-          echo "release_line=${RELEASE_LINE}" >> "${GITHUB_OUTPUT}"
-
       - name: Write summary (success)
         if: needs.update-image-tag.result == 'success'
-        shell: bash
         run: |
           {
-            echo "## CD OK — ArgoCD sync triggered"
-            echo ""
-            echo "- Ref: \`${{ github.ref_name }}\`"
-            echo "- Image tag: \`sha-${{ github.sha }}\`"
-            echo "- ArgoCD will auto-sync from \`helm/fraud-detection/values-dev.yaml\`"
-            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            echo "- ${{ steps.notify_meta.outputs.release_line }}"
+            echo "## ✅ CD Succeeded"
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| SHA tag | \`${{ needs.version.outputs.sha_tag }}\` |"
+            echo "| Semver tag | \`${{ needs.version.outputs.semver_tag || 'none' }}\` |"
+            echo "| Deployed tag | see values-prod.yaml |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Run | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create GitHub Issue (failure)
@@ -269,21 +300,22 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const title = `CD failed: ${context.ref.replace('refs/', '')} (${context.sha.slice(0, 7)})`;
+            const shaTag = "${{ needs.version.outputs.sha_tag }}";
+            const title = `CD failed: ${shaTag} (${context.sha.slice(0, 7)})`;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
-              '## CD failed',
-              `- Ref: \`${context.ref}\``,
+              `## ❌ CD failed`,
+              `- SHA tag: \`${shaTag}\``,
               `- Commit: \`${context.sha}\``,
               `- Run: ${runUrl}`,
               '',
-              '### What to do next',
-              '- Check the smoke-test logs and the update-image-tag step.',
+              '### Next steps',
+              '- Check smoke-test logs',
+              '- Check update-image-tag step',
             ].join('\n');
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title,
-              body,
+              title, body,
               labels: ['cd', 'failure']
             });

@@ -7,7 +7,7 @@ global:
   # Docker Hub username — used to build image refs for all three services
   dockerhubUsername: jpatel6625
   # Image tag applied to all services. Override in env values files.
-  imageTag: latest
+  imageTag: "none"
   # Kubernetes namespace to deploy into
   namespace: fraud-detection
   # Name of the pre-created imagePullSecret for Docker Hub

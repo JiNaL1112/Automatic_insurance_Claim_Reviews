@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────
 
 global:
-  imageTag: latest   # dev always pulls :latest
+  imageTag: dev   # dev always pulls :latest
 
 # Scale down to save resources in dev
 flask:
