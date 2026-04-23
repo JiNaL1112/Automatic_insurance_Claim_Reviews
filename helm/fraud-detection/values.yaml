@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────
+# fraud-detection Helm chart — default values
+# Override per-environment with values-dev.yaml / values-prod.yaml
+# ─────────────────────────────────────────────────────────────
+
+global:
+  # Docker Hub username — used to build image refs for all three services
+  dockerhubUsername: jpatel6625
+  # Image tag applied to all services. Override in env values files.
+  imageTag: latest
+  # Kubernetes namespace to deploy into
+  namespace: fraud-detection
+  # Name of the pre-created imagePullSecret for Docker Hub
+  imagePullSecret: dockerhub-creds
+  storageClass: standard  # adjust if your cluster uses a different default StorageClass
+
+# ── MLflow ────────────────────────────────────────────────────
+mlflow:
+  enabled: true
+  image:
+    repository: fraud-detection-mlflow
+    pullPolicy: Always
+  replicaCount: 1
+  port: 5000
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "1Gi"
+    limits:
+      cpu: "500m"
+      memory: "2Gi"
+  persistence:
+    size: 2Gi
+  
+
+# ── BentoML ───────────────────────────────────────────────────
+bentoml:
+  enabled: true
+  image:
+    repository: fraud-detection-ml
+    pullPolicy: Always
+  replicaCount: 1
+  port: 3000
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  persistence:
+    size: 2Gi
+  probes:
+    startup:
+      failureThreshold: 60   # 60 × 5s = 300s — covers cold-start training
+      periodSeconds: 5
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      failureThreshold: 3
+
+# ── Flask ─────────────────────────────────────────────────────
+flask:
+  enabled: true
+  image:
+    repository: fraud-detection-app
+    pullPolicy: Always
+  replicaCount: 2
+  port: 5005
+  servicePort: 80
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "300m"
+      memory: "256Mi"
+  probes:
+    startup:
+      failureThreshold: 6    # 6 × 5s = 30s
+      periodSeconds: 5
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+    liveness:
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      failureThreshold: 3
+
+# ── Gateway API / HTTPRoute ───────────────────────────────────
+gateway:
+  enabled: true
+  parentRef:
+    name: cluster-gateway
+    namespace: nginx-gateway
+  hostname: "fraud-detection.local"

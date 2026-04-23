@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────
+# Production environment overrides
+# Usage: helm upgrade --install fraud-detection ./fraud-detection \
+#          -f values.yaml -f values-prod.yaml \
+#          --set global.imageTag=sha-<commit>
+# ─────────────────────────────────────────────────────────────
+
+global:
+  # In prod, always pin to a specific sha tag — never :latest
+  # Set at deploy time: --set global.imageTag=sha-abc1234
+  imageTag: ""   # intentionally blank — must be supplied at deploy time
+
+flask:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+bentoml:
+  replicaCount: 1   # stateful — model store on PVC; keep at 1 unless using shared storage
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  persistence:
+    size: 5Gi
+
+mlflow:
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  persistence:
+    size: 10Gi
+
+gateway:
+  hostname: "fraud-detection.example.com"   # replace with your real domain

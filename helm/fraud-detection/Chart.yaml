@@ -1,0 +1,13 @@
+apiVersion: v2
+name: fraud-detection
+description: Health Insurance Claims Fraud Detection — MLflow + BentoML + Flask
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - mlops
+  - fraud-detection
+  - bentoml
+  - mlflow
+maintainers:
+  - name: Jinal

@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-detection
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    project: fraud-detection
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/JiNaL1112/Automatic_insurance_Claim_Reviews.git
+    targetRevision: main
+    path: helm/fraud-detection          # Helm chart root
+
+    helm:
+      # Base values + environment overlay — ArgoCD merges these in order
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml              # swap for values-dev.yaml on a dev Application
+
+      # Pin the image tag at deploy time (set by your CD pipeline)
+      # e.g. the CD job runs:
+      #   argocd app set fraud-detection -p global.imageTag=sha-<commit>
+      # or the CD job patches values-prod.yaml and commits back to Git (GitOps).
+      parameters: []                    # leave empty; tag is managed via values-prod.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fraud-detection
+
+  syncPolicy:
+    automated:
+      prune: true       # Remove resources deleted from Git
+      selfHeal: true    # Revert any manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m   # Accounts for BentoML's long cold-start training window
