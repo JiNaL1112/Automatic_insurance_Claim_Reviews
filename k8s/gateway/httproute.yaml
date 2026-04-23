@@ -6,7 +6,7 @@ metadata:
 spec:
   parentRefs:
     - name:  cluster-gateway
-      namespace: gateway-system
+      namespace: nginx-gateway
   hostnames:
     - "fraud-detection.local"
   rules:

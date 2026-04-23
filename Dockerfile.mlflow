@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 # Install mlflow at build time — no runtime pip install delay
-RUN pip install --no-cache-dir mlflow
+RUN pip install --no-cache-dir mlflow==2.19.0
 
 # Create artifact directory
 RUN mkdir -p /app/mlruns

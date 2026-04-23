@@ -58,7 +58,7 @@ services:
     ports:
       - "5005:5005"
     environment:
-      - BENTOML_URL=http://bentoml:3000/predict
+      - APP_BENTOML_URL=http://bentoml:3000/predict
     depends_on:
       bentoml:
         condition: service_healthy
