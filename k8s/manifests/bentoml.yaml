@@ -4,7 +4,7 @@ metadata:
   name: bentoml-models
   namespace: fraud-detection
 spec:
-  storageClassName: local-path        # ✅ Single declaration — duplicate removed
+  storageClassName: standard #local-path        # ✅ Single declaration — duplicate removed
   accessModes: [ReadWriteOnce]
   resources:
     requests:

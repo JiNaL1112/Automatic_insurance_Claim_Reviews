@@ -4,7 +4,7 @@ metadata:
   name: mlflow-data
   namespace: fraud-detection
 spec:
-  storageClassName: local-path
+  storageClassName: standard #local-path
   accessModes: [ReadWriteOnce]
   resources:
     requests:
@@ -30,13 +30,6 @@ spec:
         app: mlflow
         version: "1.0"
     spec:
-      initContainers:
-        - name: db-cleanup
-          image: busybox
-          command: ["sh", "-c", "rm -f /app/mlruns/mlflow.db && echo 'Cleaned mlflow.db'"]
-          volumeMounts:
-            - name: mlflow-data
-              mountPath: /app/mlruns
       containers:
         - name: mlflow
           image: jpatel6625/fraud-detection-mlflow:latest
@@ -45,34 +38,14 @@ spec:
             - name: http
               containerPort: 5000
               protocol: TCP
-          startupProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            failureThreshold: 12
-            periodSeconds: 5
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
-            successThreshold: 1
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            initialDelaySeconds: 15
-            periodSeconds: 20
-            failureThreshold: 3
+          
           resources:
             requests:
               cpu: "100m"
-              memory: "256Mi"
+              memory: "1Gi"
             limits:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "2Gi"
           volumeMounts:
             - name: mlflow-data
               mountPath: /app/mlruns
