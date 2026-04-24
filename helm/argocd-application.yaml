@@ -19,7 +19,7 @@ spec:
       # Base values + environment overlay — ArgoCD merges these in order
       valueFiles:
         - values.yaml
-        - values-dev.yaml              # swap for values-dev.yaml on a dev Application
+        - values-prod.yaml              # swap for values-dev.yaml on a dev Application
 
       # Pin the image tag at deploy time (set by your CD pipeline)
       # e.g. the CD job runs:

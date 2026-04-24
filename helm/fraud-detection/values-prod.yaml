@@ -11,24 +11,24 @@ global:
   imageTag: "sha-010eaebd"
 
 flask:
-  replicaCount: 3
+  replicaCount: 2
   resources:
     requests:
-      cpu: "200m"
-      memory: "256Mi"
+      cpu: "100m"
+      memory: "128Mi"
     limits:
-      cpu: "500m"
-      memory: "512Mi"
+      cpu: "300m"
+      memory: "2560Mi"
 
 bentoml:
   replicaCount: 1   # stateful — model store on PVC; keep at 1 unless using shared storage
   resources:
     requests:
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: "200m"
+      memory: "512Mi"
     limits:
-      cpu: "2000m"
-      memory: "2Gi"
+      cpu: "1000m"
+      memory: "1Gi"
   persistence:
     size: 5Gi
 
@@ -39,7 +39,7 @@ mlflow:
       memory: "512Mi"
     limits:
       cpu: "1000m"
-      memory: "1Gi"
+      memory: "2Gi"
   persistence:
     size: 10Gi
 
