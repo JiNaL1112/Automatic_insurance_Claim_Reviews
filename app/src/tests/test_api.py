@@ -10,9 +10,7 @@ Covers:
 """
 
 import base64
-import json
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 import requests as requests_lib
 
 
@@ -122,9 +120,8 @@ class TestPredictHappyPath:
         client.post("/predict", data={"file": _encode_csv(VALID_CSV)})
 
         call_kwargs = mock_post.call_args
-        payload = call_kwargs.kwargs.get("json") or call_kwargs.args[1] if len(call_kwargs.args) > 1 else call_kwargs.kwargs["json"]
         # Access via keyword or positional
-        sent_json = mock_post.call_args[1].get("json") or mock_post.call_args[0][1]
+        sent_json = call_kwargs.kwargs.get("json") or call_kwargs.args[1] if len(call_kwargs.args) > 1 else call_kwargs.kwargs["json"]
         assert "data" in sent_json
         assert len(sent_json["data"]) == 2
         first = sent_json["data"][0]
