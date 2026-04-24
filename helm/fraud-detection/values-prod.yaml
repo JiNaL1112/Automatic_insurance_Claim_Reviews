@@ -8,7 +8,7 @@
 global:
   # In prod, always pin to a specific sha tag — never :latest
   # Set at deploy time: --set global.imageTag=sha-abc1234
-  imageTag: "sha-a467abf9"
+  imageTag: "v2.2.0"
 
 flask:
   replicaCount: 2
