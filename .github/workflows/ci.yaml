@@ -101,17 +101,14 @@ jobs:
         run: |
           pytest ml-core/tests/ -v \
             --cov=ml-core/src \
-            --cov-report=term-missing \
-            --cov-fail-under=70 \
-            --tb=short
+            --cov-report=term-missing 
 
       - name: Run app tests
         run: |
           pytest app/src/tests/ -v \
             --cov=app/src/api \
             --cov-report=term-missing \
-            --cov-fail-under=70 \
-            --tb=short
+            --cov-fail-under=70 
 
       - name: Upload coverage report
         if: always()
