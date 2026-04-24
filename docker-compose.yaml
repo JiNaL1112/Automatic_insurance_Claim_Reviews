@@ -6,15 +6,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.mlflow
-    # ADD THIS: tells docker compose which registry image to use when --no-build
-    # is passed. Without this, compose invents a name from the folder and the
-    # smoke test pull step and the compose up step use two different names.
     image: ${DOCKERHUB_USERNAME}/fraud-detection-mlflow:${IMAGE_TAG:-latest}
     container_name: mlflow
     volumes:
       - ./mlruns:/app/mlruns
     ports:
       - "5000:5000"
+    environment:
+      # SECURITY: restrict to localhost only for local dev.
+      # In production, override with your actual domain via .env or CI secret:
+      #   MLFLOW_SERVER_ALLOWED_HOSTS=mlflow.yourdomain.com
+      - MLFLOW_SERVER_ALLOWED_HOSTS=${MLFLOW_ALLOWED_HOSTS:-localhost,127.0.0.1}
     healthcheck:
       test: ["CMD", "python3", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
@@ -27,7 +29,6 @@ services:
     build:
       context: ./ml-core
       dockerfile: Dockerfile.ml
-    # ADD THIS: same reason as mlflow above
     image: ${DOCKERHUB_USERNAME}/fraud-detection-ml:${IMAGE_TAG:-latest}
     container_name: bentoml
     ports:
@@ -38,8 +39,6 @@ services:
       mlflow:
         condition: service_healthy
     healthcheck:
-      # CI can be "cold" (no cached model) and BentoML health endpoints vary by version.
-      # A simple TCP connect is the most reliable signal that the server is up.
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.settimeout(3); s.connect(('127.0.0.1',3000)); s.close()"]
       start_period: 300s
       interval: 15s
@@ -52,13 +51,15 @@ services:
     build:
       context: ./app
       dockerfile: Dockerfile.app
-    # ADD THIS: same reason as above
     image: ${DOCKERHUB_USERNAME}/fraud-detection-app:${IMAGE_TAG:-latest}
     container_name: flask_app
     ports:
       - "5005:5005"
     environment:
       - APP_BENTOML_URL=http://bentoml:3000/predict
+      # SECURITY: lock down to the compose network hostname in production.
+      # For local dev this defaults to * (open) — override via .env file.
+      - APP_ALLOWED_HOSTS=${FLASK_ALLOWED_HOSTS:-*}
     depends_on:
       bentoml:
         condition: service_healthy

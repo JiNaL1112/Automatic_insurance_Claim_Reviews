@@ -13,12 +13,8 @@
             background-color: #f5f7fa;
             color: #333;
         }
-        h1 {
-            color: #2c3e50;
-        }
-        p {
-            color: #555;
-        }
+        h1 { color: #2c3e50; }
+        p  { color: #555; }
         .upload-box {
             background: white;
             border: 2px dashed #3498db;
@@ -27,9 +23,7 @@
             text-align: center;
             margin-top: 30px;
         }
-        input[type="file"] {
-            margin: 15px 0;
-        }
+        input[type="file"] { margin: 15px 0; }
         button {
             background-color: #3498db;
             color: white;
@@ -40,57 +34,92 @@
             cursor: pointer;
             margin-top: 10px;
         }
-        button:hover {
-            background-color: #2980b9;
-        }
-        #status {
-            margin-top: 15px;
-            color: #888;
-            font-size: 14px;
-        }
+        button:hover    { background-color: #2980b9; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        #status         { margin-top: 15px; font-size: 14px; }
+        .error          { color: #e74c3c; }
+        .info           { color: #888; }
     </style>
 </head>
 <body>
     <h1>🏥 Health Claims Fraud Detection</h1>
     <p>Upload a CSV file containing health claims to detect potentially fraudulent entries using the Isolation Forest model.</p>
+    <p style="font-size:13px; color:#888;">Maximum file size: <strong>5 MB</strong>. Accepted format: <strong>CSV only</strong>.</p>
 
     <div class="upload-box">
         <p><strong>Select a CSV file to analyse</strong></p>
-        <input type="file" id="fileInput" accept=".csv" />
+        <input type="file" id="fileInput" accept=".csv,text/csv" />
         <br>
-        <button onclick="uploadFile()">Analyse Claims</button>
+        <button id="submitBtn" onclick="uploadFile()">Analyse Claims</button>
         <p id="status"></p>
     </div>
 
     <script>
+        const MAX_BYTES = 5 * 1024 * 1024; // 5 MB — must match server MAX_UPLOAD_BYTES
+
+        function setStatus(msg, isError) {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = isError ? 'error' : 'info';
+        }
+
         function uploadFile() {
-            const fileInput = document.getElementById('fileInput');
-            const status = document.getElementById('status');
+            const fileInput  = document.getElementById('fileInput');
+            const submitBtn  = document.getElementById('submitBtn');
 
             if (!fileInput.files.length) {
-                status.textContent = '⚠️ Please select a CSV file first.';
+                setStatus('⚠️ Please select a CSV file first.', true);
                 return;
             }
 
             const file = fileInput.files[0];
+
+            // ── Client-side guards (server enforces these too) ────────────
+            if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') {
+                setStatus('❌ Invalid file type. Please upload a .csv file.', true);
+                return;
+            }
+
+            if (file.size > MAX_BYTES) {
+                const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+                setStatus(`❌ File too large (${sizeMB} MB). Maximum allowed size is 5 MB.`, true);
+                return;
+            }
+
+            if (file.size === 0) {
+                setStatus('❌ The selected file is empty.', true);
+                return;
+            }
+            // ─────────────────────────────────────────────────────────────
+
+            submitBtn.disabled = true;
+            setStatus('Uploading and analysing…', false);
+
             const reader = new FileReader();
 
-            status.textContent = 'Uploading and analysing...';
+            reader.onerror = function () {
+                setStatus('❌ Failed to read the file. Please try again.', true);
+                submitBtn.disabled = false;
+            };
 
             reader.onload = function(e) {
-                const base64Data = e.target.result;
+                const base64Data = e.target.result; // "data:text/csv;base64,..."
 
                 fetch('/predict', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'file=' + encodeURIComponent(base64Data)
+                    body: 'file=' + encodeURIComponent(base64Data),
                 })
                 .then(response => {
                     if (response.ok) {
                         return response.text();
-                    } else {
-                        throw new Error('Server error: ' + response.status);
                     }
+                    // Try to surface a useful server error message
+                    return response.json().then(data => {
+                        throw new Error(data.error || `Server error ${response.status}`);
+                    }).catch(() => {
+                        throw new Error(`Server error ${response.status}`);
+                    });
                 })
                 .then(html => {
                     document.open();
@@ -98,7 +127,8 @@
                     document.close();
                 })
                 .catch(err => {
-                    status.textContent = '❌ Error: ' + err.message;
+                    setStatus('❌ ' + err.message, true);
+                    submitBtn.disabled = false;
                 });
             };
 
