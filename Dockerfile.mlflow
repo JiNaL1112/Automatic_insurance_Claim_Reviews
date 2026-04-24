@@ -22,4 +22,5 @@ CMD ["mlflow", "server", \
      "--port", "5000", \
      "--backend-store-uri", "sqlite:///mlruns/mlflow.db", \
      "--default-artifact-root", "/app/mlruns", \
-     "--workers", "1"]
+     "--workers", "1", \
+      "--gunicorn-opts", "--timeout 120 --keep-alive 5"]
