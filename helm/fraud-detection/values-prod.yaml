@@ -44,4 +44,8 @@ mlflow:
     size: 10Gi
 
 gateway:
-  hostname: "fraud-detection.example.com"   # replace with your real domain
+  hostname: "fraud-detection.local"
+  parentRef:
+    name: cluster-gateway
+    namespace: nginx-gateway
+    sectionName: http-fraud  
