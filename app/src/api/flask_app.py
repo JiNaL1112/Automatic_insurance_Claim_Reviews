@@ -6,7 +6,7 @@ import uuid
 import pandas as pd
 import requests
 from flask import Flask, g, render_template, request
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, Gauge
 from prometheus_flask_exporter import PrometheusMetrics
 from pydantic import ValidationError
 
