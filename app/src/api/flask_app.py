@@ -6,6 +6,8 @@ import uuid
 import pandas as pd
 import requests
 from flask import Flask, g, render_template, request
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_flask_exporter import PrometheusMetrics
 from pydantic import ValidationError
 
 from api.config import settings
@@ -17,9 +19,50 @@ logger = get_logger(__name__)
 
 app = Flask(__name__)
 
+# ── Prometheus metrics ────────────────────────────────────────────────────────
+metrics = PrometheusMetrics(app)
+
+# Static app info label exposed on every metric
+metrics.info("flask_app_info", "Flask app metadata", version="1.0.0")
+
+# Business metrics
+claims_processed_total = Counter(
+    "claims_processed_total",
+    "Total number of claims submitted for prediction",
+)
+anomalies_detected_total = Counter(
+    "anomalies_detected_total",
+    "Total number of claims flagged as anomalies",
+)
+normal_predictions_total = Counter(
+    "normal_predictions_total",
+    "Total number of claims classified as normal",
+)
+prediction_errors_total = Counter(
+    "prediction_errors_total",
+    "Total prediction failures by error type",
+    ["error_type"],   # labels: bentoml_unavailable | bentoml_error | validation_error
+)
+
+# Latency
+bentoml_request_duration_seconds = Histogram(
+    "bentoml_request_duration_seconds",
+    "Time spent waiting for BentoML /predict response",
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
+csv_rows_per_request = Histogram(
+    "csv_rows_per_request",
+    "Number of claim rows per uploaded CSV",
+    buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000],
+)
+
+# Live anomaly rate (gauge — recomputed per batch)
+anomaly_rate_gauge = Gauge(
+    "anomaly_rate_last_batch",
+    "Fraction of claims flagged as anomalies in the most recent batch (0–1)",
+)
+
 # ── Hard limits ───────────────────────────────────────────────────────────────
-# 5 MB expressed in bytes.  base64 inflates ~33%, so a 5 MB encoded payload
-# corresponds to ~3.75 MB of raw CSV — more than enough for any realistic batch.
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024          # 5 MB
 ALLOWED_MIME_PREFIX = "data:text/csv"        # only accept CSV data-URIs
 
@@ -65,7 +108,7 @@ def predict():
         logger.warning("predict: no file data received [req=%s]", req_id)
         return {"error": "No file data received"}, 400
 
-    # ── 2. Size guard (checked on the raw string before any decoding) ────────
+    # ── 2. Size guard ────────────────────────────────────────────────────────
     if len(file_data.encode("utf-8")) > MAX_UPLOAD_BYTES:
         logger.warning(
             "predict: upload too large (%d bytes) [req=%s]",
@@ -75,7 +118,6 @@ def predict():
         return {"error": "File too large. Maximum allowed size is 5 MB."}, 413
 
     # ── 3. MIME type validation ──────────────────────────────────────────────
-    # Expected format: "data:text/csv;base64,<payload>"
     if not file_data.startswith(ALLOWED_MIME_PREFIX):
         logger.warning(
             "predict: invalid MIME type in upload [req=%s] prefix=%s",
@@ -86,11 +128,9 @@ def predict():
 
     # ── 4. Base64 decode ─────────────────────────────────────────────────────
     try:
-        # Everything after the first comma is the base64 payload
         b64_payload = file_data.split(",", 1)[1]
         decoded_bytes = base64.b64decode(b64_payload)
     except Exception:
-        # Do NOT include the raw exception — it may leak internal detail
         logger.exception("predict: base64 decode failed [req=%s]", req_id)
         return {"error": "Could not decode the uploaded file."}, 400
 
@@ -103,10 +143,9 @@ def predict():
         logger.exception("predict: CSV parse failed [req=%s]", req_id)
         return {"error": "Could not parse the uploaded file as CSV."}, 400
 
-    # Missing required columns — tell the client *which* columns are missing,
-    # not the raw KeyError which would expose internal variable names.
     missing_cols = [col for col in FEATURES if col not in df.columns]
     if missing_cols:
+        prediction_errors_total.labels(error_type="validation_error").inc()
         return {
             "error": "Missing required columns",
             "details": missing_cols,
@@ -116,56 +155,76 @@ def predict():
         records = df[FEATURES].to_dict(orient="records")
         batch = ClaimBatch(data=records)
     except ValidationError as exc:
-        # Pydantic errors are safe to surface — they reference field names only
+        prediction_errors_total.labels(error_type="validation_error").inc()
         return {"error": "Invalid data in CSV", "details": exc.errors()}, 422
     except Exception:
         logger.exception("predict: validation failed [req=%s]", req_id)
+        prediction_errors_total.labels(error_type="validation_error").inc()
         return {"error": "Failed to validate claim data."}, 400
+
+    # Record batch size
+    csv_rows_per_request.observe(len(batch.data))
 
     # ── 6. Preserve claim_id if present ─────────────────────────────────────
     claim_ids = df["claim_id"] if "claim_id" in df.columns else None
 
     # ── 7. Forward to BentoML ────────────────────────────────────────────────
     try:
-        response = requests.post(
-            BENTOML_URL,
-            json={"data": [c.model_dump() for c in batch.data]},
-            timeout=30,
-            # Forward the request ID so BentoML logs can be correlated
-            headers={"X-Request-ID": req_id},
-        )
+        with bentoml_request_duration_seconds.time():
+            response = requests.post(
+                BENTOML_URL,
+                json={"data": [c.model_dump() for c in batch.data]},
+                timeout=30,
+                headers={"X-Request-ID": req_id},
+            )
     except requests.exceptions.Timeout:
         logger.error("predict: BentoML timeout [req=%s]", req_id)
+        prediction_errors_total.labels(error_type="bentoml_unavailable").inc()
         return {"error": "Prediction service timed out. Please try again."}, 503
     except requests.exceptions.RequestException:
         logger.exception("predict: BentoML unreachable [req=%s]", req_id)
+        prediction_errors_total.labels(error_type="bentoml_unavailable").inc()
         return {"error": "Prediction service is temporarily unavailable."}, 503
 
     if response.status_code != 200:
-        # Log the real error internally; return a generic message externally
         logger.error(
             "predict: BentoML returned %d [req=%s] body=%s",
             response.status_code,
             req_id,
-            response.text[:200],    # cap log size
+            response.text[:200],
         )
+        prediction_errors_total.labels(error_type="bentoml_error").inc()
         return {"error": "Prediction service returned an unexpected error."}, 500
 
     predictions = response.json()["predictions"]
 
-    # ── 8. Build result ──────────────────────────────────────────────────────
+    # ── 8. Update business metrics ───────────────────────────────────────────
+    n_anomalies = predictions.count(-1)
+    n_normal = predictions.count(1)
+    batch_size = len(predictions)
+
+    claims_processed_total.inc(batch_size)
+    anomalies_detected_total.inc(n_anomalies)
+    normal_predictions_total.inc(n_normal)
+
+    # Anomaly rate for this batch (0.0 – 1.0)
+    anomaly_rate = n_anomalies / batch_size if batch_size > 0 else 0.0
+    anomaly_rate_gauge.set(anomaly_rate)
+
+    logger.info(
+        "predict: processed %d claims, %d anomalies (%.1f%%) [req=%s]",
+        batch_size,
+        n_anomalies,
+        anomaly_rate * 100,
+        req_id,
+    )
+
+    # ── 9. Build result ──────────────────────────────────────────────────────
     result_df = df[FEATURES].copy()
     if claim_ids is not None:
         result_df.insert(0, "claim_id", claim_ids.values)
     result_df["Prediction"] = predictions
     result_df["Status"] = result_df["Prediction"].map({1: "✅ Normal", -1: "🚨 Anomaly"})
-
-    logger.info(
-        "predict: processed %d claims, %d anomalies [req=%s]",
-        len(result_df),
-        (result_df["Prediction"] == -1).sum(),
-        req_id,
-    )
 
     return render_template(
         "result.html",

@@ -30,7 +30,10 @@ class Claim(BaseModel):
     days_since_last_claim: int = Field(..., ge=0, le=3650)
 
 
-@bentoml.service(name="health_insurance_anomaly_detection_service")
+@bentoml.service(
+    name="health_insurance_anomaly_detection_service",
+    metrics={"enabled": True},   # exposes /metrics on :3000
+)
 class AnomalyDetectionService:
 
     def __init__(self):

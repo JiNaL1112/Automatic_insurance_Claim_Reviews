@@ -5,8 +5,11 @@ metadata:
   namespace: fraud-detection
 spec:
   parentRefs:
-    - name:  cluster-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name:  cluster-gateway
       namespace: nginx-gateway
+      sectionName: http-fraud
   hostnames:
     - "fraud-detection.local"
   rules:
