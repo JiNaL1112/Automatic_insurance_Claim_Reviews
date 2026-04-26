@@ -99,3 +99,9 @@ gateway:
     name: cluster-gateway
     namespace: nginx-gateway
   hostname: "fraud-detection.local"
+
+
+# ── Monitoring / Prometheus ───────────────────────────────────
+
+monitoring:
+  enabled: true

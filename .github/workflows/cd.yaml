@@ -210,6 +210,8 @@ jobs:
           docker compose logs
           exit 1
 
+      
+      
       - name: Tear down
         if: always()
         run: docker compose down --volumes --remove-orphans

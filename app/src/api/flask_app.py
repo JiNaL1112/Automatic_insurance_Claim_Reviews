@@ -23,7 +23,7 @@ app = Flask(__name__)
 metrics = PrometheusMetrics(app)
 
 # Static app info label exposed on every metric
-metrics.info("flask_app_info", "Flask app metadata", version="1.0.0")
+metrics.info('flask_app_info', 'Flask fraud detection app', version='1.0')
 
 # Business metrics
 claims_processed_total = Counter(

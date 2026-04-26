@@ -1,0 +1,33 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flask-monitor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    release: kube-prom-stack     # must match your Prometheus helm release name
+spec:
+  selector:
+    matchLabels:
+      app: flask
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bentoml-monitor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    release: kube-prom-stack
+spec:
+  selector:
+    matchLabels:
+      app: bentoml
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+{{- end }}

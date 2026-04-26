@@ -3,6 +3,7 @@ from __future__ import annotations
 import bentoml
 import pandas as pd
 from pydantic import BaseModel, Field
+from prometheus_client import Counter  
 
 FEATURES = [
     "claim_amount",
@@ -11,6 +12,12 @@ FEATURES = [
     "provider_id",
     "days_since_last_claim",
 ]
+
+prediction_counter = Counter(
+    'fraud_predictions_total',
+    'Total predictions made',
+    ['result']
+)
 
 
 class Claim(BaseModel):
@@ -52,6 +59,11 @@ class AnomalyDetectionService:
         validated = [Claim(**record) for record in data]
         df = pd.DataFrame([c.model_dump() for c in validated])[FEATURES]
         predictions = self.model.predict(df)
+ 
+        for p in predictions:
+            label = 'anomaly' if p == -1 else 'normal'
+            prediction_counter.labels(result=label).inc()
+
         return {"predictions": predictions.tolist()}
 
     @bentoml.api

@@ -1,0 +1,49 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fraud-detection-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prom-stack
+spec:
+  groups:
+    - name: fraud-detection
+      rules:
+        - alert: HighAnomalyRate
+          expr: |
+            rate(fraud_predictions_total{result="anomaly"}[5m]) /
+            rate(fraud_predictions_total[5m]) > 0.15
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Anomaly rate above 15%"
+            description: "More than 15% of claims are flagged as fraudulent — check model or data drift."
+
+        - alert: FlaskHighErrorRate
+          expr: |
+            rate(flask_http_request_total{status=~"5.."}[5m]) > 0.05
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Flask app returning 5xx errors"
+
+        - alert: BentoMLDown
+          expr: up{job="bentoml-monitor"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "BentoML prediction service is down"
+
+        - alert: PredictionLatencyHigh
+          expr: |
+            histogram_quantile(0.95,
+              rate(flask_http_request_duration_seconds_bucket{endpoint="/predict"}[5m])
+            ) > 5
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prediction endpoint p95 latency > 5s"
